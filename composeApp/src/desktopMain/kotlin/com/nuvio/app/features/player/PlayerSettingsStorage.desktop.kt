@@ -266,6 +266,8 @@ internal actual object PlayerSettingsStorage {
     actual fun saveTunnelingEnabled(enabled: Boolean) = saveBoolean(tunnelingEnabledKey, enabled)
     actual fun loadStreamAutoPlayMode(): String? = loadString(streamAutoPlayModeKey)
     actual fun saveStreamAutoPlayMode(mode: String) = saveString(streamAutoPlayModeKey, mode)
+    actual fun loadStreamAutoPlayMaxQuality(): String? = loadString("stream_auto_play_max_quality")
+    actual fun saveStreamAutoPlayMaxQuality(quality: String) = saveString("stream_auto_play_max_quality", quality)
     actual fun loadStreamAutoPlaySource(): String? = loadString(streamAutoPlaySourceKey)
     actual fun saveStreamAutoPlaySource(source: String) = saveString(streamAutoPlaySourceKey, source)
     actual fun loadStreamAutoPlaySelectedAddons(): Set<String>? = loadStringSet(streamAutoPlaySelectedAddonsKey)

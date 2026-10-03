@@ -385,6 +385,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         episodeStreamFilters = episodeStreamFilters,
         episodeStreamItems = episodeStreamItems,
         sourceTracks = sourceTracks.state,
+        openSourcesToken = sourceFailover.openSourcesToken,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         submitIntroSegmentType = submitIntroSegmentType,
         submitIntroContentKey = activeSubmitIntroContentKey(),
@@ -524,6 +525,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 },
                 onSnapshot = { snapshot ->
                     if (!updatePlaybackSnapshot(snapshot)) return@PlatformPlayerSurface
+                    onShortClipPlaying(snapshot) // fork
                     refreshAudioTracksIfChanged()
                     if (!snapshot.isLoading) initialLoadCompleted = true
                     if (snapshot.isEnded) {
@@ -535,6 +537,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                         return@PlatformPlayerSurface
                     }
+                    if (message != null && tryAutoSourceFailover(message)) return@PlatformPlayerSurface // fork
                     errorMessage = message
                     if (message != null) {
                         scrubbingPositionMs = null
@@ -893,6 +896,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         "selectSource" -> {
             val streams = sourceStreamsState.groups.flatMap { it.streams }
             val stream = streams.getOrNull(value.toInt()) ?: return true
+            markManualSourcePick(stream) // fork
             if (requestP2pConsentForPlayerControls(stream = stream, episode = null)) return true
             switchToSource(stream)
             playerControlsCloseModalsToken += 1
@@ -913,6 +917,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         "selectEpisodeStream" -> {
             val episode = episodeStreamsPanelState.selectedEpisode ?: return true
             val stream = episodeStreamsRepoState.groups.flatMap { it.streams }.getOrNull(value.toInt()) ?: return true
+            markManualSourcePick(stream) // fork
             if (requestP2pConsentForPlayerControls(stream = stream, episode = episode)) return true
             switchToEpisodeStream(stream, episode)
             playerControlsCloseModalsToken += 1
@@ -1781,7 +1786,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         activeSourceUrl = activeSourceUrl,
         activeStreamTitle = activeStreamTitle,
         onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
-        onSourceStreamSelected = { stream -> switchToSource(stream) },
+        onSourceStreamSelected = { stream -> markManualSourcePick(stream); switchToSource(stream) },
         onReloadSources = {
             val vid = activeVideoId
             if (vid != null) {
@@ -1828,7 +1833,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
         },
         onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
+        onEpisodeStreamSelected = { stream, episode -> markManualSourcePick(stream); switchToEpisodeStream(stream, episode) },
         onBackToEpisodes = {
             episodeStreamsPanelState = EpisodeStreamsPanelState()
             PlayerStreamsRepository.clearEpisodeStreams()

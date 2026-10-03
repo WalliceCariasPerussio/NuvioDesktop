@@ -241,6 +241,8 @@ internal class PlayerScreenRuntime(
     var nextEpisodePreloadTriggered by mutableStateOf(false)
     // Fork: latest chips/options of the controls web view, to resolve its clicks.
     var playerControlsSourceTracks: PlayerControlsSourceTracks? = null
+    // Fork: failover to the next source in the "best in my language" mode (PlayerSourceFailover.kt).
+    val sourceFailover = SourceFailoverState()
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)

@@ -3034,6 +3034,8 @@ window.playerControls = nextState => {
   const previousCloseToken = Number(state.closeModalsToken) || 0;
   const previousSubmitIntroSuccessToken = Number(state.submitIntroSuccessToken) || 0;
   const previousNotificationToken = Number(state.notificationToken) || 0;
+  const previousOpenSourcesToken = Number(state.openSourcesToken) || 0;
+  const hadPlayerControls = hasReceivedPlayerControls;
   const previousResizeLabel = state.resizeModeLabel || "";
   const previousSpeedLabel = state.playbackSpeedLabel || "";
   const previousEpisodeStreamsVisible = Boolean(state.episodeStreamsVisible);
@@ -3067,6 +3069,13 @@ window.playerControls = nextState => {
   const notificationToken = Number(state.notificationToken) || 0;
   if (notificationToken !== previousNotificationToken) {
     showPlayerToast(state.notificationMessage);
+  }
+  // Fork: the failover found no other source (e.g. the addon sent its error clip): show the list.
+  const openSourcesToken = Number(state.openSourcesToken) || 0;
+  if (hadPlayerControls && openSourcesToken !== previousOpenSourcesToken && activeModal !== "sources") {
+    setChromeVisibleFromKeyboard(true); // the panel lives in the controls; open modals keep them up
+    openPlayerModal("sources");
+    send("sources", 0);
   }
   if (state.showP2pConsent && activeModal !== "p2pConsent") {
     openPlayerModal("p2pConsent");

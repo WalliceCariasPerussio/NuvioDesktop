@@ -1527,6 +1527,8 @@ private fun PlayerControlsState.toControlsJson(isFullscreen: Boolean): String =
         append(',')
         appendJsonField("sourceTracks", sourceTracks)
         append(',')
+        appendJsonField("openSourcesToken", openSourcesToken)
+        append(',')
         appendJsonField("blurUnwatchedEpisodes", blurUnwatchedEpisodes)
         append(',')
         appendJsonField("submitIntroSegmentType", submitIntroSegmentType)

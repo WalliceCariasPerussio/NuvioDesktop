@@ -61,6 +61,8 @@ data class PlayerSettingsUiState(
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
+    val streamAutoPlayMaxQuality: com.nuvio.app.features.streams.StreamAutoPlayMaxQuality =
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.FHD_1080,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
@@ -133,6 +135,7 @@ object PlayerSettingsRepository {
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
     private var streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+    private var streamAutoPlayMaxQuality = com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.FHD_1080
     private var streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
     private var streamAutoPlaySelectedAddons: Set<String> = emptySet()
     private var streamAutoPlaySelectedPlugins: Set<String> = emptySet()
@@ -210,6 +213,7 @@ object PlayerSettingsRepository {
         mapDV7ToHevc = false
         tunnelingEnabled = false
         streamAutoPlayMode = StreamAutoPlayMode.MANUAL
+        streamAutoPlayMaxQuality = com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.FHD_1080
         streamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES
         streamAutoPlaySelectedAddons = emptySet()
         streamAutoPlaySelectedPlugins = emptySet()
@@ -326,6 +330,9 @@ object PlayerSettingsRepository {
         streamAutoPlayMode = PlayerSettingsStorage.loadStreamAutoPlayMode()
             ?.let { runCatching { StreamAutoPlayMode.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlayMode.MANUAL
+        streamAutoPlayMaxQuality = PlayerSettingsStorage.loadStreamAutoPlayMaxQuality()
+            ?.let { runCatching { com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.valueOf(it) }.getOrNull() }
+            ?: com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.FHD_1080
         streamAutoPlaySource = PlayerSettingsStorage.loadStreamAutoPlaySource()
             ?.let { runCatching { StreamAutoPlaySource.valueOf(it) }.getOrNull() }
             ?: StreamAutoPlaySource.ALL_SOURCES
@@ -655,6 +662,14 @@ object PlayerSettingsRepository {
         streamAutoPlayMode = mode
         publish()
         PlayerSettingsStorage.saveStreamAutoPlayMode(mode.name)
+    }
+
+    fun setStreamAutoPlayMaxQuality(quality: com.nuvio.app.features.streams.StreamAutoPlayMaxQuality) {
+        ensureLoaded()
+        if (streamAutoPlayMaxQuality == quality) return
+        streamAutoPlayMaxQuality = quality
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayMaxQuality(quality.name)
     }
 
     fun setStreamAutoPlaySource(source: StreamAutoPlaySource) {
@@ -1031,6 +1046,7 @@ object PlayerSettingsRepository {
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,
             streamAutoPlayMode = streamAutoPlayMode,
+            streamAutoPlayMaxQuality = streamAutoPlayMaxQuality,
             streamAutoPlaySource = streamAutoPlaySource,
             streamAutoPlaySelectedAddons = streamAutoPlaySelectedAddons,
             streamAutoPlaySelectedPlugins = streamAutoPlaySelectedPlugins,

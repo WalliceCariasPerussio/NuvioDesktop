@@ -228,6 +228,8 @@ data class PlayerControlsState(
     val episodeStreamItems: List<PlayerControlSourceItem> = emptyList(),
     /** Fork: quality chips and the audio/quality panels (PlayerControlsSourceTracks.kt). */
     val sourceTracks: PlayerControlsSourceTracksState = PlayerControlsSourceTracksState(),
+    /** Fork: changes when the failover runs out of sources, so the controls open the source list. */
+    val openSourcesToken: Int = 0,
     val blurUnwatchedEpisodes: Boolean = false,
     val submitIntroSegmentType: String = "intro",
     val submitIntroStartTime: String = "00:00",

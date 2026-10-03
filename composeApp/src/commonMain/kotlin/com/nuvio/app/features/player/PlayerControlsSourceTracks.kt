@@ -2,7 +2,11 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.nuvio.app.features.streams.SourceRanking
 import com.nuvio.app.features.streams.StreamAudioQualityFilter
+import com.nuvio.app.features.streams.bucket
+import com.nuvio.app.features.streams.isWithin
+import com.nuvio.app.features.streams.rankSourceStreams
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLanguageUnknown
 import com.nuvio.app.features.streams.StreamQualityBucket
@@ -196,7 +200,10 @@ internal fun PlayerScreenRuntime.rememberPlayerControlsSourceTracks(
     val sourceFilter = rememberStreamAudioQualityFilter(sourceState)
     val episodeFilter = rememberStreamAudioQualityFilter(episodeState)
     val targets = preferredAudioTargets(playerSettingsUiState, contentLanguage)
-    val options = remember(sourceState.groups, audioTracks, selectedAudioIndex, activeSourceUrl, activeSourceIdentityKey, targets) {
+    val options = remember(
+        sourceState.groups, audioTracks, selectedAudioIndex, activeSourceUrl, activeSourceIdentityKey, targets,
+        playerSettingsUiState.streamAutoPlayMaxQuality,
+    ) {
         buildSourceTrackOptions(sourceState.groups.flatMap { it.streams }, targets)
     }
 
@@ -307,7 +314,11 @@ private fun PlayerScreenRuntime.buildSourceTrackOptions(
         SourceLanguageOption(
             key = key,
             streamCount = counts[key] ?: 0,
-            bestQuality = traits.filter { key in it.audioLanguages }.minOfOrNull { it.quality },
+            // What picking the language would play: the best within the cap, else the closest above.
+            bestQuality = traits.filter { key in it.audioLanguages }.map { it.quality }.let { qualities ->
+                val cap = playerSettingsUiState.streamAutoPlayMaxQuality.bucket
+                qualities.filter { it.isWithin(cap) }.minOrNull() ?: qualities.maxOrNull()
+            },
             isCurrent = currentLanguage != null && sameLanguage(key, currentLanguage),
         )
     }
@@ -335,18 +346,37 @@ private fun PlayerScreenRuntime.buildSourceTrackOptions(
 }
 
 /** Best source for a language and/or quality: exact language first, then best quality, list order. */
-private fun bestSourceStream(streams: List<StreamItem>, language: String?, quality: StreamQualityBucket?): StreamItem? =
-    streams.mapNotNull { stream ->
-        val traits = stream.streamTraits()
-        if (quality != null && traits.quality != quality) return@mapNotNull null
-        val languageRank = when {
-            language == null -> 0
-            language in traits.audioLanguages -> 0
-            traits.audioLanguages.any { sameLanguage(it, language) } -> 1
-            else -> return@mapNotNull null
-        }
-        Triple(stream, languageRank, traits.quality.ordinal)
-    }.sortedWith(compareBy({ it.second }, { it.third })).firstOrNull()?.first
+/**
+ * Best source for a language and/or quality, by the shared ranking (StreamSourceRanking.kt): a
+ * language pick stays within the quality cap when it can; a quality picked by hand has no cap. Ties
+ * prefer the release group and the addon playing now.
+ */
+private fun PlayerScreenRuntime.bestSourceStream(
+    streams: List<StreamItem>,
+    language: String?,
+    quality: StreamQualityBucket?,
+): StreamItem? {
+    val scoped = if (quality == null) streams else streams.filter { it.streamTraits().quality == quality }
+    return rankSourceStreams(
+        scoped,
+        SourceRanking(
+            language = language,
+            maxQuality = if (quality == null) playerSettingsUiState.streamAutoPlayMaxQuality.bucket else null,
+            strictCap = false,
+            preferredBingeGroup = currentStreamBingeGroup,
+            preferredAddonId = activeProviderAddonId,
+        ),
+    ).firstOrNull()
+}
+
+/** Audio language the failover keeps: the track playing, in the source list's terms. */
+internal fun PlayerScreenRuntime.currentAudioLanguageForFailover(): String? =
+    currentAudioLanguage(currentSourceStream(PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams }))
+
+/** Languages for the next episode's autoplay: the one playing now, then the preferred ones. */
+internal fun PlayerScreenRuntime.nextEpisodeAudioLanguages(): List<String> =
+    (listOfNotNull(currentAudioLanguageForFailover()) + preferredAudioTargets(playerSettingsUiState, contentLanguage))
+        .distinct()
 
 /** "Todos" scope: plays the language; on the stream playing if it carries it, else on its best source. */
 private fun PlayerScreenRuntime.selectSourceAudioLanguage(language: String) {
