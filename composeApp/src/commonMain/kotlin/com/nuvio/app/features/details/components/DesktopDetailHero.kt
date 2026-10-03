@@ -69,6 +69,7 @@ import com.nuvio.app.core.ui.fullscreenActionHorizontalInsetForWidth
 import com.nuvio.app.core.ui.expandingWideArtworkWidthDp
 import com.nuvio.app.core.ui.isFullscreenActionSupported
 import com.nuvio.app.core.ui.WideDesktopViewportAspectRatio
+import com.nuvio.app.features.details.DetailStreamPrefetchStatus
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.tmdb.originalTmdbImageUrl
@@ -358,6 +359,7 @@ fun DesktopDetailHero(
                 onPlayClick = onPlayClick,
                 onPlayLongClick = onPlayLongClick,
             )
+            DetailStreamPrefetchStatus(modifier = Modifier.widthIn(max = 520.dp).padding(top = space.s12))
         }
 
         if (heroTrailerSourceUrl != null) {

@@ -876,6 +876,16 @@ fun MetaDetailsScreen(
                         }
                     }
                 }
+                DetailStreamPrefetchEffect(
+                    detailStreamPrefetchRequest(
+                        meta = meta,
+                        hasEpisodes = hasEpisodes,
+                        seriesAction = seriesAction,
+                        seriesStreamVideoId = seriesStreamVideoId,
+                        canPlay = onPlay != null && !shufflePoolEmpty,
+                        playbackAvailability = playbackAvailability,
+                    ),
+                )
                 val manualPlayHandler = onPlayManually
                 val showManualPlayOption = manualPlayHandler != null && StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState)
                 val onPrimaryPlayLongClick: (() -> Unit)? = manualPlayHandler
