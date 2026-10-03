@@ -829,7 +829,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsAction(action: PlayerControl
             showAudioModal = true
         }
         PlayerControlsAction.Sources -> {
-            prepareSourcesForPlayerControls()
+            prepareSourcesForPlayerControls(forceRefresh = isPlaybackFailed)
         }
         PlayerControlsAction.Episodes -> {
             prepareEpisodesForPlayerControls()
