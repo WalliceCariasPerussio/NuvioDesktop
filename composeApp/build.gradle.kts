@@ -1409,6 +1409,12 @@ compose.desktop {
     }
 }
 
+// The hot reload run tasks don't get the application's jvmArgs; without the
+// --add-opens the player can't reach the AWT peer and plays to a black screen.
+tasks.withType<org.jetbrains.compose.reload.gradle.AbstractComposeHotRun>().configureEach {
+    jvmArgs(compose.desktop.application.jvmArgs)
+}
+
 fun renameMacosDmgOutput(release: Boolean) {
     if (!isMacHost) return
 
