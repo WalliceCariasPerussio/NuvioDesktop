@@ -7,6 +7,8 @@ import com.nuvio.app.features.player.PlayerControlEpisodeItem
 import com.nuvio.app.features.player.PlayerControlFilterItem
 import com.nuvio.app.features.player.PlayerControlSeasonItem
 import com.nuvio.app.features.player.PlayerControlSourceItem
+import com.nuvio.app.features.player.PlayerControlSourceOptionItem
+import com.nuvio.app.features.player.PlayerControlsSourceTracksState
 import com.nuvio.app.features.player.PlayerControlSubtitleCueItem
 import com.nuvio.app.features.player.PlayerControlSubtitleLanguageItem
 import com.nuvio.app.features.player.PlayerControlSubtitleOptionItem
@@ -1523,6 +1525,8 @@ private fun PlayerControlsState.toControlsJson(isFullscreen: Boolean): String =
         append(',')
         appendJsonArrayField("episodeStreamItems", episodeStreamItems) { appendSourceItemJson(it) }
         append(',')
+        appendJsonField("sourceTracks", sourceTracks)
+        append(',')
         appendJsonField("blurUnwatchedEpisodes", blurUnwatchedEpisodes)
         append(',')
         appendJsonField("submitIntroSegmentType", submitIntroSegmentType)
@@ -1839,3 +1843,50 @@ private fun String.toJsonString(): String =
         }
         append('"')
     }
+
+// Fork: quality chips and the audio/quality panels (PlayerControlsSourceTracks.kt).
+private fun StringBuilder.appendJsonField(name: String, value: PlayerControlsSourceTracksState) {
+    append('"').append(name).append("\":{")
+    appendJsonArrayField("sourceQualityFilters", value.sourceQualityFilters) { appendFilterItemJson(it) }
+    append(',')
+    appendJsonArrayField("episodeStreamQualityFilters", value.episodeStreamQualityFilters) { appendFilterItemJson(it) }
+    append(',')
+    appendJsonField("audioScopeCurrentLabel", value.audioScopeCurrentLabel)
+    append(',')
+    appendJsonField("audioScopeAllLabel", value.audioScopeAllLabel)
+    append(',')
+    appendJsonArrayField("audioSourceOptions", value.audioSourceOptions) { appendSourceOptionItemJson(it) }
+    append(',')
+    appendJsonField("qualityLabel", value.qualityLabel)
+    append(',')
+    appendJsonField("qualityScopeCurrentLabel", value.qualityScopeCurrentLabel)
+    append(',')
+    appendJsonField("qualityScopeAllLabel", value.qualityScopeAllLabel)
+    append(',')
+    appendJsonArrayField("qualityCurrentAudioOptions", value.qualityCurrentAudioOptions) { appendSourceOptionItemJson(it) }
+    append(',')
+    appendJsonArrayField("qualityAllOptions", value.qualityAllOptions) { appendSourceOptionItemJson(it) }
+    append(',')
+    appendJsonField("loadingLabel", value.loadingLabel)
+    append(',')
+    appendJsonField("emptyLabel", value.emptyLabel)
+    append(',')
+    appendJsonField("switchAudioToLabel", value.switchAudioToLabel)
+    append(',')
+    appendJsonField("cancelLabel", value.cancelLabel)
+    append('}')
+}
+
+private fun StringBuilder.appendSourceOptionItemJson(item: PlayerControlSourceOptionItem) {
+    append('{')
+    appendJsonField("label", item.label)
+    append(',')
+    appendJsonField("detail", item.detail)
+    append(',')
+    appendJsonField("isCurrent", item.isCurrent)
+    append(',')
+    appendJsonField("missingAudioMessage", item.missingAudioMessage)
+    append(',')
+    appendJsonArrayField("languageLabels", item.languageLabels) { append(it.toJsonString()) }
+    append('}')
+}

@@ -78,6 +78,13 @@ const speedOptionList = document.getElementById("speedOptionList");
 const speedPanelTitle = document.getElementById("speedPanelTitle");
 const audioPanelTitle = document.getElementById("audioPanelTitle");
 const audioTrackList = document.getElementById("audioTrackList");
+const audioScopeList = document.getElementById("audioScopeList");
+const qualityButton = document.getElementById("qualityButton");
+const qualityLabel = document.getElementById("qualityLabel");
+const qualityModal = document.getElementById("qualityModal");
+const qualityPanelTitle = document.getElementById("qualityPanelTitle");
+const qualityScopeList = document.getElementById("qualityScopeList");
+const qualityOptionList = document.getElementById("qualityOptionList");
 const subtitleTrackList = document.getElementById("subtitleTrackList");
 const subtitlePanelTitle = document.getElementById("subtitlePanelTitle");
 const subtitleLanguageRailTitle = document.getElementById("subtitleLanguageRailTitle");
@@ -126,6 +133,7 @@ const sourceReloadButton = document.getElementById("sourceReloadButton");
 const sourceCloseButton = document.getElementById("sourceCloseButton");
 const sourceContextLabel = document.getElementById("sourceContextLabel");
 const sourceFilterList = document.getElementById("sourceFilterList");
+const sourceQualityFilterList = document.getElementById("sourceQualityFilterList");
 const sourceList = document.getElementById("sourceList");
 const episodesModal = document.getElementById("episodesModal");
 const episodeListView = document.getElementById("episodeListView");
@@ -140,6 +148,7 @@ const episodeReloadButton = document.getElementById("episodeReloadButton");
 const episodeStreamsCloseButton = document.getElementById("episodeStreamsCloseButton");
 const episodeStreamContextLabel = document.getElementById("episodeStreamContextLabel");
 const episodeStreamFilterList = document.getElementById("episodeStreamFilterList");
+const episodeStreamQualityFilterList = document.getElementById("episodeStreamQualityFilterList");
 const episodeStreamList = document.getElementById("episodeStreamList");
 const submitIntroModal = document.getElementById("submitIntroModal");
 const submitIntroPanelTitle = document.getElementById("submitIntroPanelTitle");
@@ -920,6 +929,7 @@ const rangePositionMs = () => {
 
 const modalByName = {
   audio: audioModal,
+  quality: qualityModal,
   subtitles: subtitleModal,
   speed: speedModal,
   sources: sourceModal,
@@ -1075,6 +1085,7 @@ const renderSpeedOptionList = () => {
 const renderAudioTrackList = () => {
   audioPanelTitle.textContent = state.audioTracksPanelTitle || "Audio Tracks";
   audioTrackList.textContent = "";
+  if (renderAudioSourceScope()) return; // fork: "Todos" scope lists the languages of every source
   const tracks = normalizeTracks(state.audioTracks);
   if (tracks.length === 0) {
     appendEmptyTrackState(audioTrackList, state.noAudioTracksLabel || "No audio tracks available");
@@ -1691,15 +1702,10 @@ const renderSourceModal = () => {
   sourceContextLabel.textContent = state.episodeText || state.title || "";
   sourceContextLabel.hidden = !sourceContextLabel.textContent;
 
-  const filters = normalizeItems(state.sourceFilters);
-  if (sourceFilterId && !filters.some(filter => String(filter.id || "") === sourceFilterId)) {
-    sourceFilterId = "";
-  }
-  renderFilterRow(sourceFilterList, filters, sourceFilterId, id => {
-    sourceFilterId = id;
-    sourceList.scrollTop = 0;
-    renderSourceModal();
-  });
+  // Fork: audio language and quality chips; Kotlin filters the items and owns the selection.
+  sourceFilterId = "";
+  renderRemoteFilterRow(sourceFilterList, state.sourceFilters, "selectSourceLanguage", () => { sourceList.scrollTop = 0; });
+  renderRemoteFilterRow(sourceQualityFilterList, (state.sourceTracks || {}).sourceQualityFilters, "selectSourceQuality", () => { sourceList.scrollTop = 0; });
 
   sourceList.textContent = "";
   sourceList.classList.remove("virtualized");
@@ -1840,14 +1846,10 @@ const renderEpisodeStreams = () => {
   episodeStreamContextLabel.textContent = state.selectedEpisodeLabel || "";
   episodeStreamContextLabel.hidden = !episodeStreamContextLabel.textContent;
 
-  const filters = normalizeItems(state.episodeStreamFilters);
-  if (episodeStreamFilterId && !filters.some(filter => String(filter.id || "") === episodeStreamFilterId)) {
-    episodeStreamFilterId = "";
-  }
-  renderFilterRow(episodeStreamFilterList, filters, episodeStreamFilterId, id => {
-    episodeStreamFilterId = id;
-    renderEpisodeStreams();
-  });
+  // Fork: audio language and quality chips; Kotlin filters the items and owns the selection.
+  episodeStreamFilterId = "";
+  renderRemoteFilterRow(episodeStreamFilterList, state.episodeStreamFilters, "selectEpisodeStreamLanguage");
+  renderRemoteFilterRow(episodeStreamQualityFilterList, (state.sourceTracks || {}).episodeStreamQualityFilters, "selectEpisodeStreamQuality");
 
   episodeStreamList.textContent = "";
   let items = normalizeItems(state.episodeStreamItems);
@@ -1921,6 +1923,7 @@ const renderP2pConsentModal = () => {
 
 const renderActiveModal = () => {
   if (activeModal === "audio") renderAudioTrackList();
+  if (activeModal === "quality") renderQualityModal();
   if (activeModal === "subtitles") renderSubtitleModal();
   if (activeModal === "speed") renderSpeedOptionList();
   if (activeModal === "sources") renderSourceModal();
@@ -2270,6 +2273,8 @@ const renderChrome = () => {
   setActionButtonLabel("speed", state.playbackSpeedLabel || "1x");
   setActionButtonLabel("subtitles", state.subtitlesLabel || "Subs");
   setActionButtonLabel("audio", state.audioLabel || "Audio");
+  qualityLabel.textContent = (state.sourceTracks || {}).qualityLabel || "Quality";
+  setActionButtonLabel("quality", (state.sourceTracks || {}).qualityLabel || "Quality");
   setActionButtonLabel("sources", state.sourcesLabel || "Sources");
   setActionButtonLabel("episodes", state.episodesLabel || "Episodes");
   if (pipButton) {
@@ -2286,6 +2291,7 @@ const renderChrome = () => {
   setVisible(submitIntroButton, Boolean(state.showSubmitIntro));
   setVisible(videoSettingsButton, Boolean(state.showVideoSettings));
   setVisible(sourcesButton, Boolean(state.showSources));
+  setVisible(qualityButton, Boolean(state.showSources));
   setVisible(episodesButton, Boolean(state.showEpisodes));
   syncActionFocusState();
 
@@ -2655,7 +2661,11 @@ document.querySelectorAll("[data-command]").forEach(button => {
       return;
     }
     if (command === "audio") {
-      openPlayerModal("audio");
+      openSourceTrackModal("audio");
+      return;
+    }
+    if (command === "quality") {
+      openSourceTrackModal("quality");
       return;
     }
     if (command === "subtitles") {
@@ -3368,7 +3378,8 @@ document.addEventListener("keydown", event => {
   }
 
   if ((activeModal === "episodes" || activeModal === "sources") && (event.code === "ArrowLeft" || event.code === "ArrowRight")) {
-    const chips = Array.from(document.querySelectorAll('.filter-chip:not([hidden])')).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
+    // Fork: arrows cycle the audio language row (the quality row is clicked).
+    const chips = Array.from(document.querySelectorAll('#sourceFilterList .filter-chip, #episodeStreamFilterList .filter-chip')).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
     if (chips.length > 0) {
       let selectedIndex = chips.findIndex(el => el.classList.contains('selected'));
       if (selectedIndex === -1) selectedIndex = 0;
@@ -3386,7 +3397,7 @@ document.addEventListener("keydown", event => {
     }
   }
 
-  if (activeModal === "audio" && (event.code === "ArrowUp" || event.code === "ArrowDown")) {
+  if (activeModal === "audio" && audioSourceScope === "current" && (event.code === "ArrowUp" || event.code === "ArrowDown")) {
     event.preventDefault();
     if (state.audioTracks && state.audioTracks.length > 0) {
       const currentIndex = state.audioTracks.findIndex(t => t.selected);
@@ -3480,7 +3491,7 @@ document.addEventListener("keydown", event => {
   if (event.code === "KeyA") {
     event.preventDefault();
     if (activeModal === "audio") closePlayerModal(true);
-    else openPlayerModal("audio");
+    else openSourceTrackModal("audio");
     return;
   }
   if (event.code === "KeyS") {
@@ -3696,6 +3707,166 @@ document.addEventListener("keydown", event => {
   showCommandToast(command);
   send(command, 0);
 });
+
+// --- Fork: audio "Todos" scope and quality panel, from every source of the episode ---------------
+// Kotlin (PlayerControlsSourceTracks.kt) sends the options in state.sourceTracks and resolves the
+// index of what is clicked here.
+
+let audioSourceScope = "current";
+let qualitySourceScope = "current";
+let qualityPromptIndex = -1;
+
+const openSourceTrackModal = modal => {
+  audioSourceScope = "current";
+  qualitySourceScope = "current";
+  qualityPromptIndex = -1;
+  openPlayerModal(modal);
+  send("sources", 0); // loads the episode's sources (reused from the search cache)
+};
+
+const renderRemoteFilterRow = (container, filters, messageType, onSelect) => {
+  if (!container) return;
+  const list = normalizeItems(filters);
+  container.textContent = "";
+  container.hidden = list.length === 0;
+  list.forEach((filter, index) => {
+    appendFilterChip(
+      container,
+      filter.label || "",
+      Boolean(filter.isSelected),
+      () => {
+        if (onSelect) onSelect();
+        send(messageType, index);
+      },
+      Boolean(filter.isLoading),
+      Boolean(filter.hasError),
+    );
+  });
+};
+
+const renderScopeRow = (container, labels, selectedIndex, onSelect) => {
+  if (!container) return;
+  container.textContent = "";
+  container.hidden = labels.length === 0;
+  labels.forEach((label, index) => {
+    appendFilterChip(container, label, index === selectedIndex, () => onSelect(index));
+  });
+};
+
+const renderSourceOptionRows = (container, options, onSelect) => {
+  const list = normalizeItems(options);
+  if (list.length === 0) {
+    const tracks = state.sourceTracks || {};
+    appendEmptyTrackState(
+      container,
+      state.sourceIsLoading ? (tracks.loadingLabel || "Searching sources...") : (tracks.emptyLabel || "No sources found"),
+    );
+    return;
+  }
+  list.forEach((option, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `track-row audio-track-row${option.isCurrent ? " selected" : ""}`;
+    row.addEventListener("click", event => {
+      event.stopPropagation();
+      onSelect(option, index);
+    });
+    const copy = document.createElement("span");
+    copy.className = "audio-track-copy";
+    const name = document.createElement("span");
+    name.className = "audio-track-name";
+    name.textContent = option.label || "";
+    copy.appendChild(name);
+    if (option.detail) {
+      const detail = document.createElement("span");
+      detail.className = "audio-track-language";
+      detail.textContent = option.detail;
+      copy.appendChild(detail);
+    }
+    row.appendChild(copy);
+    row.appendChild(buildCheckIcon());
+    container.appendChild(row);
+  });
+};
+
+/** Draws the "Stream atual" / "Todos" chips; returns true when "Todos" filled the list. */
+const renderAudioSourceScope = () => {
+  const tracks = state.sourceTracks || {};
+  renderScopeRow(
+    audioScopeList,
+    [tracks.audioScopeCurrentLabel || "Current stream", tracks.audioScopeAllLabel || "All"],
+    audioSourceScope === "all" ? 1 : 0,
+    index => {
+      audioSourceScope = index === 1 ? "all" : "current";
+      renderAudioTrackList();
+    },
+  );
+  if (audioSourceScope !== "all") return false;
+  renderSourceOptionRows(audioTrackList, tracks.audioSourceOptions, (_, index) => {
+    send("selectSourceAudioLanguage", index);
+    window.setTimeout(closePlayerModal, 120);
+  });
+  return true;
+};
+
+const renderQualityModal = () => {
+  const tracks = state.sourceTracks || {};
+  qualityPanelTitle.textContent = tracks.qualityLabel || "Quality";
+  qualityOptionList.textContent = "";
+  const hasCurrentAudio = Boolean(tracks.qualityScopeCurrentLabel);
+  if (!hasCurrentAudio) qualitySourceScope = "all";
+  renderScopeRow(
+    qualityScopeList,
+    hasCurrentAudio ? [tracks.qualityScopeCurrentLabel, tracks.qualityScopeAllLabel || "All"] : [],
+    qualitySourceScope === "all" ? 1 : 0,
+    index => {
+      qualitySourceScope = index === 1 ? "all" : "current";
+      qualityPromptIndex = -1;
+      renderQualityModal();
+    },
+  );
+
+  const allOptions = normalizeItems(tracks.qualityAllOptions);
+  const prompt = qualitySourceScope === "all" ? allOptions[qualityPromptIndex] : null;
+  if (prompt) {
+    // No source of this quality has the audio playing: pick which audio to switch to.
+    appendEmptyTrackState(qualityOptionList, prompt.missingAudioMessage || "");
+    appendEmptyTrackState(qualityOptionList, tracks.switchAudioToLabel || "Switch audio to:");
+    const languages = Array.isArray(prompt.languageLabels) ? prompt.languageLabels : [];
+    const promptIndex = qualityPromptIndex;
+    renderSourceOptionRows(
+      qualityOptionList,
+      languages.map(label => ({ label })).concat([{ label: tracks.cancelLabel || "Cancel", cancel: true }]),
+      (option, languageIndex) => {
+        if (option.cancel) {
+          qualityPromptIndex = -1;
+          renderQualityModal();
+          return;
+        }
+        send("selectSourceQualityAudio", promptIndex * 1000 + languageIndex);
+        window.setTimeout(closePlayerModal, 120);
+      },
+    );
+    return;
+  }
+
+  if (qualitySourceScope === "all") {
+    renderSourceOptionRows(qualityOptionList, allOptions, (option, index) => {
+      if (option.missingAudioMessage) {
+        qualityPromptIndex = index;
+        renderQualityModal();
+        return;
+      }
+      send("selectSourceQualityAll", index);
+      window.setTimeout(closePlayerModal, 120);
+    });
+  } else {
+    renderSourceOptionRows(qualityOptionList, tracks.qualityCurrentAudioOptions, (_, index) => {
+      send("selectSourceQualityCurrentAudio", index);
+      window.setTimeout(closePlayerModal, 120);
+    });
+  }
+};
 
 setProgress(0, 0);
 focusShortcutRoot();

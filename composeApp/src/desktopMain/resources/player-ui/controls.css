@@ -3427,3 +3427,9 @@ svg {
   stroke: none;
   pointer-events: none;
 }
+
+/* Fork: "Stream atual" / "Todos" chips of the audio and quality panels. */
+.player-rail-modal .source-scope-row {
+  padding: 0 0 12px;
+  gap: 12px;
+}

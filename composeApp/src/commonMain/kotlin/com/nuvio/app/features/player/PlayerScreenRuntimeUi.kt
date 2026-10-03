@@ -197,18 +197,16 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     }
     val allFilterLabel = stringResource(Res.string.collections_tab_all)
     val playingLabel = stringResource(Res.string.compose_player_playing)
-    val sourceFilters = buildPlayerControlFilters(
-        allLabel = allFilterLabel,
-        selectedFilter = null,
-    )
-    val sourceItems = buildPlayerControlSourceItems()
+    // Fork: audio language + quality chips instead of addon chips, and the audio/quality panels.
+    val sourceTracks = rememberPlayerControlsSourceTracks(sourceStreamsState, episodeStreamsRepoState)
+    playerControlsSourceTracks = sourceTracks
+    val sourceFilters = sourceTracks.sourceLanguageFilters
+    val sourceItems = buildPlayerControlSourceItems().filter { it.index in sourceTracks.sourceVisibleIndexes }
     val episodeItems = buildPlayerControlEpisodeItems()
     val episodeSeasons = buildPlayerControlSeasonItems(episodeItems)
-    val episodeStreamFilters = buildPlayerControlEpisodeStreamFilters(
-        allLabel = allFilterLabel,
-        selectedFilter = null,
-    )
+    val episodeStreamFilters = sourceTracks.episodeLanguageFilters
     val episodeStreamItems = buildPlayerControlEpisodeStreamItems()
+        .filter { it.index in sourceTracks.episodeVisibleIndexes }
     val playerControlAddonSubtitles = buildPlayerControlAddonSubtitleItems()
     val playerControlSubtitleSelection = buildPlayerControlSubtitleSelection()
     val playerControlAutoSyncCues = buildPlayerControlSubtitleCueItems()
@@ -386,6 +384,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         selectedEpisodeLabel = selectedEpisodeLabel,
         episodeStreamFilters = episodeStreamFilters,
         episodeStreamItems = episodeStreamItems,
+        sourceTracks = sourceTracks.state,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         submitIntroSegmentType = submitIntroSegmentType,
         submitIntroContentKey = activeSubmitIntroContentKey(),
@@ -863,6 +862,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsAction(action: PlayerControl
 }
 
 private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: Double): Boolean {
+    if (playerControlsSourceTracks?.handleEvent(this, type, value) == true) return true // fork
     if (type.shouldLogPlayerControlsEvent()) {
         playerControlsLog.d { "event type=$type value=$value ${playerControlLogContext()}" }
     }
@@ -1066,7 +1066,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
     return true
 }
 
-private fun PlayerScreenRuntime.requestP2pConsentForPlayerControls(
+internal fun PlayerScreenRuntime.requestP2pConsentForPlayerControls(
     stream: StreamItem,
     episode: MetaVideo?,
 ): Boolean {
@@ -1400,7 +1400,7 @@ private fun formatStreamVideoSize(bytes: Long?): String {
     return stringResource(Res.string.streams_size, sizeLabel)
 }
 
-private fun PlayerScreenRuntime.isCurrentPlayerControlStream(stream: StreamItem): Boolean {
+internal fun PlayerScreenRuntime.isCurrentPlayerControlStream(stream: StreamItem): Boolean {
     val activeKey = activeSourceIdentityKey
     val streamKey = stream.playerSourceIdentityKey()
     if (activeKey != null) {

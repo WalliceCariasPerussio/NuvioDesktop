@@ -226,6 +226,8 @@ data class PlayerControlsState(
     val selectedEpisodeLabel: String = "",
     val episodeStreamFilters: List<PlayerControlFilterItem> = emptyList(),
     val episodeStreamItems: List<PlayerControlSourceItem> = emptyList(),
+    /** Fork: quality chips and the audio/quality panels (PlayerControlsSourceTracks.kt). */
+    val sourceTracks: PlayerControlsSourceTracksState = PlayerControlsSourceTracksState(),
     val blurUnwatchedEpisodes: Boolean = false,
     val submitIntroSegmentType: String = "intro",
     val submitIntroStartTime: String = "00:00",

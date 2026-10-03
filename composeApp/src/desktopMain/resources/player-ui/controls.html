@@ -60,6 +60,9 @@
     <symbol id="icon-subs" viewBox="0 0 24 24">
       <path fill="none" stroke="currentColor" stroke-width="2" d="M1,12 C1,5 2.5,4 12,4 C21.5,4 23,5 23,12 C23,19 21.5,20 12,20 C2.5,20 1,19 1,12 Z M5.25,14 C5.25,15.5 6,16 7.75,16 C9.5,16 10.25,15.5 10.25,14 L9.97861679,14 C9.97861671,15.25 8.97905547,16 7.75,16 C6.52094453,16 5.52138329,15.25 5.52138321,14 L5.52138321,10 C5.5,8.75 6.5,8 7.75,8 C9,8 10,8.75 9.97861679,10 L10.25,10 C10.25,8.75 9.2286998,8 7.75,8 C6.2713002,8 5.25,8.75 5.25,10 L5.25,14 Z M13.25,14 C13.25,15.5 14,16 15.75,16 C17.5,16 18.25,15.5 18.25,14 L17.9786168,14 C17.9786167,15.25 16.9790555,16 15.75,16 C14.5209445,16 13.5213833,15.25 13.5213832,14 L13.5213832,10 C13.5,8.75 14.5,8 15.75,8 C17,8 18,8.75 17.9786168,10 L18.25,10 C18.25,8.75 17.2286998,8 15.75,8 C14.2713002,8 13.25,8.75 13.25,10 L13.25,14 Z"/>
     </symbol>
+    <symbol id="icon-quality" viewBox="0 0 24 24">
+      <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 11H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm7-1c0 .55-.45 1-1 1h-.75v1.5h-1.5V15H14c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v4zm-3.5-.5h2v-3h-2v3z"/>
+    </symbol>
     <symbol id="icon-audio" viewBox="0 0 24 24">
       <path d="M12 6.25C11.3096 6.25 10.75 6.80964 10.75 7.5C10.75 8.19036 11.3096 8.75 12 8.75C12.6904 8.75 13.25 8.19036 13.25 7.5C13.25 6.80964 12.6904 6.25 12 6.25Z"/>
       <path d="M9.75 15.5C9.75 14.2574 10.7574 13.25 12 13.25C13.2426 13.25 14.25 14.2574 14.25 15.5C14.25 16.7426 13.2426 17.75 12 17.75C10.7574 17.75 9.75 16.7426 9.75 15.5Z"/>
@@ -225,6 +228,7 @@
             <button class="action" data-command="speed"><svg><use href="#icon-speed"></use></svg><span id="speedLabel">1x</span></button>
             <button class="action" data-command="subtitles"><svg><use href="#icon-subs"></use></svg><span id="subtitlesLabel">Subs</span></button>
             <button class="action" data-command="audio"><svg><use href="#icon-audio"></use></svg><span id="audioLabel">Audio</span></button>
+            <button class="action optional" id="qualityButton" data-command="quality"><svg><use href="#icon-quality"></use></svg><span id="qualityLabel">Quality</span></button>
             <button class="action optional" id="sourcesButton" data-command="sources"><svg><use href="#icon-source"></use></svg><span id="sourcesLabel">Sources</span></button>
             <button class="action optional" id="episodesButton" data-command="episodes"><svg><use href="#icon-episodes"></use></svg><span id="episodesLabel">Episodes</span></button>
           </div>
@@ -252,7 +256,15 @@
       <section class="modal-layer player-rail-modal" id="audioModal" aria-label="Audio tracks" hidden>
         <div class="track-panel audio-rail-panel">
           <div class="track-header" id="audioPanelTitle">Audio tracks</div>
+          <div class="filter-row source-scope-row" id="audioScopeList" hidden></div>
           <div class="track-list" id="audioTrackList"></div>
+        </div>
+      </section>
+      <section class="modal-layer player-rail-modal" id="qualityModal" aria-label="Quality" hidden>
+        <div class="track-panel audio-rail-panel">
+          <div class="track-header" id="qualityPanelTitle">Quality</div>
+          <div class="filter-row source-scope-row" id="qualityScopeList" hidden></div>
+          <div class="track-list" id="qualityOptionList"></div>
         </div>
       </section>
       <section class="modal-layer player-rail-modal" id="subtitleModal" aria-label="Subtitles" hidden>
@@ -355,6 +367,7 @@
           </div>
           <div class="panel-context" id="sourceContextLabel"></div>
           <div class="filter-row" id="sourceFilterList"></div>
+          <div class="filter-row" id="sourceQualityFilterList" hidden></div>
           <div class="track-list" id="sourceList"></div>
         </div>
       </section>
@@ -383,6 +396,7 @@
               <div class="panel-context" id="episodeStreamContextLabel"></div>
             </div>
             <div class="filter-row" id="episodeStreamFilterList"></div>
+            <div class="filter-row" id="episodeStreamQualityFilterList" hidden></div>
             <div class="track-list" id="episodeStreamList"></div>
           </div>
         </div>
