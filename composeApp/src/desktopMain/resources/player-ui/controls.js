@@ -998,6 +998,7 @@ const setModalVisibility = (modal, visible, animated = true) => {
 const closePlayerModal = (notifyDismiss = false, animated = true) => {
   const closingModal = activeModal;
   activeModal = "";
+  releaseSourceTracksSearch(); // fork
   modalElements.forEach(modal => {
     setModalVisibility(modal, false, animated);
   });
@@ -1014,6 +1015,7 @@ const openPlayerModal = modal => {
     return;
   }
   activeModal = modal;
+  releaseSourceTracksSearch(); // fork
   if (modal === "submitIntro") {
     const contentKey = state.submitIntroContentKey || "";
     if (submitIntroDraft.contentKey !== contentKey) {
@@ -3633,8 +3635,8 @@ document.addEventListener("keydown", event => {
   }
 
   if ((activeModal === "episodes" || activeModal === "sources") && (event.code === "ArrowLeft" || event.code === "ArrowRight")) {
-    // Fork: arrows cycle the audio language row (the quality row is clicked).
-    const chips = Array.from(document.querySelectorAll('#sourceFilterList .filter-chip, #episodeStreamFilterList .filter-chip')).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
+    // Fork: arrows cycle the audio language row (the quality row is clicked), or the seasons.
+    const chips = Array.from(document.querySelectorAll('#sourceFilterList .filter-chip, #episodeStreamFilterList .filter-chip, #seasonFilterList .filter-chip')).filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
     if (chips.length > 0) {
       let selectedIndex = chips.findIndex(el => el.classList.contains('selected'));
       if (selectedIndex === -1) selectedIndex = 0;
@@ -3964,19 +3966,29 @@ document.addEventListener("keydown", event => {
 });
 
 // --- Fork: audio "Todos" scope and quality panel, from every source of the episode ---------------
-// Kotlin (PlayerControlsSourceTracks.kt) sends the options in state.sourceTracks and resolves the
-// index of what is clicked here.
+// Kotlin (PlayerControlsSourceTracks.kt) sends the options in state.sourceTracks and resolves what
+// is clicked here by its id ("event:id"): the list can change while the panel is open.
 
 let audioSourceScope = "current";
 let qualitySourceScope = "current";
-let qualityPromptIndex = -1;
+let qualityPromptId = "";
+let sourceTracksSearching = false;
 
 const openSourceTrackModal = modal => {
   audioSourceScope = "current";
   qualitySourceScope = "current";
-  qualityPromptIndex = -1;
+  qualityPromptId = "";
   openPlayerModal(modal);
-  send("sources", 0); // loads the episode's sources (reused from the search cache)
+  // Loads the episode's sources (reused from the search cache), without the Fontes panel's refresh.
+  sourceTracksSearching = true;
+  send("openSourceTracks", 0);
+};
+
+/** The audio/quality panel left the screen: its search stops, unless the Fontes panel takes over. */
+const releaseSourceTracksSearch = () => {
+  if (!sourceTracksSearching || activeModal === "audio" || activeModal === "quality") return;
+  sourceTracksSearching = false;
+  if (activeModal !== "sources") send("closeSourceTracks", 0);
 };
 
 const renderRemoteFilterRow = (container, filters, messageType, onSelect) => {
@@ -3984,14 +3996,14 @@ const renderRemoteFilterRow = (container, filters, messageType, onSelect) => {
   const list = normalizeItems(filters);
   container.textContent = "";
   container.hidden = list.length === 0;
-  list.forEach((filter, index) => {
+  list.forEach(filter => {
     appendFilterChip(
       container,
       filter.label || "",
       Boolean(filter.isSelected),
       () => {
         if (onSelect) onSelect();
-        send(messageType, index);
+        send(`${messageType}:${filter.id || ""}`, 0);
       },
       Boolean(filter.isLoading),
       Boolean(filter.hasError),
@@ -4018,13 +4030,13 @@ const renderSourceOptionRows = (container, options, onSelect) => {
     );
     return;
   }
-  list.forEach((option, index) => {
+  list.forEach(option => {
     const row = document.createElement("button");
     row.type = "button";
     row.className = `track-row audio-track-row${option.isCurrent ? " selected" : ""}`;
     row.addEventListener("click", event => {
       event.stopPropagation();
-      onSelect(option, index);
+      onSelect(option);
     });
     const copy = document.createElement("span");
     copy.className = "audio-track-copy";
@@ -4057,8 +4069,8 @@ const renderAudioSourceScope = () => {
     },
   );
   if (audioSourceScope !== "all") return false;
-  renderSourceOptionRows(audioTrackList, tracks.audioSourceOptions, (_, index) => {
-    send("selectSourceAudioLanguage", index);
+  renderSourceOptionRows(audioTrackList, tracks.audioSourceOptions, option => {
+    send(`selectSourceAudioLanguage:${option.id || ""}`, 0);
     window.setTimeout(closePlayerModal, 120);
   });
   return true;
@@ -4076,29 +4088,32 @@ const renderQualityModal = () => {
     qualitySourceScope === "all" ? 1 : 0,
     index => {
       qualitySourceScope = index === 1 ? "all" : "current";
-      qualityPromptIndex = -1;
+      qualityPromptId = "";
       renderQualityModal();
     },
   );
 
   const allOptions = normalizeItems(tracks.qualityAllOptions);
-  const prompt = qualitySourceScope === "all" ? allOptions[qualityPromptIndex] : null;
+  const prompt = qualitySourceScope === "all" && qualityPromptId
+    ? allOptions.find(option => option.id === qualityPromptId)
+    : null;
   if (prompt) {
     // No source of this quality has the audio playing: pick which audio to switch to.
     appendEmptyTrackState(qualityOptionList, prompt.missingAudioMessage || "");
     appendEmptyTrackState(qualityOptionList, tracks.switchAudioToLabel || "Switch audio to:");
-    const languages = Array.isArray(prompt.languageLabels) ? prompt.languageLabels : [];
-    const promptIndex = qualityPromptIndex;
+    const labels = Array.isArray(prompt.languageLabels) ? prompt.languageLabels : [];
+    const ids = Array.isArray(prompt.languageIds) ? prompt.languageIds : [];
     renderSourceOptionRows(
       qualityOptionList,
-      languages.map(label => ({ label })).concat([{ label: tracks.cancelLabel || "Cancel", cancel: true }]),
-      (option, languageIndex) => {
+      labels.map((label, index) => ({ label, id: ids[index] || "" }))
+        .concat([{ label: tracks.cancelLabel || "Cancel", cancel: true }]),
+      option => {
         if (option.cancel) {
-          qualityPromptIndex = -1;
+          qualityPromptId = "";
           renderQualityModal();
           return;
         }
-        send("selectSourceQualityAudio", promptIndex * 1000 + languageIndex);
+        send(`selectSourceQualityAudio:${prompt.id || ""}:${option.id}`, 0);
         window.setTimeout(closePlayerModal, 120);
       },
     );
@@ -4106,18 +4121,18 @@ const renderQualityModal = () => {
   }
 
   if (qualitySourceScope === "all") {
-    renderSourceOptionRows(qualityOptionList, allOptions, (option, index) => {
+    renderSourceOptionRows(qualityOptionList, allOptions, option => {
       if (option.missingAudioMessage) {
-        qualityPromptIndex = index;
+        qualityPromptId = option.id || "";
         renderQualityModal();
         return;
       }
-      send("selectSourceQualityAll", index);
+      send(`selectSourceQualityAll:${option.id || ""}`, 0);
       window.setTimeout(closePlayerModal, 120);
     });
   } else {
-    renderSourceOptionRows(qualityOptionList, tracks.qualityCurrentAudioOptions, (_, index) => {
-      send("selectSourceQualityCurrentAudio", index);
+    renderSourceOptionRows(qualityOptionList, tracks.qualityCurrentAudioOptions, option => {
+      send(`selectSourceQualityCurrentAudio:${option.id || ""}`, 0);
       window.setTimeout(closePlayerModal, 120);
     });
   }

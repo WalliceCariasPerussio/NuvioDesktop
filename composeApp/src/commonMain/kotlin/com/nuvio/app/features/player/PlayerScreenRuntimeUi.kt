@@ -879,7 +879,7 @@ private fun PlayerScreenRuntime.handlePlayerControlsAction(action: PlayerControl
 }
 
 private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: Double): Boolean {
-    if (playerControlsSourceTracks?.handleEvent(this, type, value) == true) return true // fork
+    if (playerControlsSourceTracks?.handleEvent(this, type) == true) return true // fork
     if (type.shouldLogPlayerControlsEvent()) {
         playerControlsLog.d { "event type=$type value=$value ${playerControlLogContext()}" }
     }

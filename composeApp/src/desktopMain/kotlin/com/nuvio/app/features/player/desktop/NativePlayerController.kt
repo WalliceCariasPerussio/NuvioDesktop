@@ -1899,6 +1899,8 @@ private fun StringBuilder.appendJsonField(name: String, value: PlayerControlsSou
 
 private fun StringBuilder.appendSourceOptionItemJson(item: PlayerControlSourceOptionItem) {
     append('{')
+    appendJsonField("id", item.id)
+    append(',')
     appendJsonField("label", item.label)
     append(',')
     appendJsonField("detail", item.detail)
@@ -1908,5 +1910,7 @@ private fun StringBuilder.appendSourceOptionItemJson(item: PlayerControlSourceOp
     appendJsonField("missingAudioMessage", item.missingAudioMessage)
     append(',')
     appendJsonArrayField("languageLabels", item.languageLabels) { append(it.toJsonString()) }
+    append(',')
+    appendJsonArrayField("languageIds", item.languageIds) { append(it.toJsonString()) }
     append('}')
 }

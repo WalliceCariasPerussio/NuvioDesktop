@@ -2,9 +2,11 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.streams.SourceRanking
 import com.nuvio.app.features.streams.StreamAudioQualityFilter
 import com.nuvio.app.features.streams.bucket
+import com.nuvio.app.features.streams.isAutoPlayableWith
 import com.nuvio.app.features.streams.isWithin
 import com.nuvio.app.features.streams.rankSourceStreams
 import com.nuvio.app.features.streams.StreamItem
@@ -41,16 +43,20 @@ import org.jetbrains.compose.resources.stringResource
 // Fork: what the desktop player controls (web view) show for sources and audio/quality:
 // audio language + quality chips in the "Fontes" and episode stream lists (instead of addon chips),
 // the "Todos" scope of the audio panel and the quality panel. Kotlin owns the choices; the web view
-// draws them and sends back the index of what was clicked.
+// draws them and sends back the id of what was clicked (the list can change while it is open).
 
 /** A row of the audio "Todos" list or of the quality panel. */
 data class PlayerControlSourceOptionItem(
+    /** What a click sends back: the language code, or the quality bucket name. */
+    val id: String = "",
     val label: String = "",
     val detail: String = "",
     val isCurrent: Boolean = false,
     /** Quality panel "Todas": set when no source of this quality has the audio playing. */
     val missingAudioMessage: String = "",
     val languageLabels: List<String> = emptyList(),
+    /** Language codes of [languageLabels], in the same order. */
+    val languageIds: List<String> = emptyList(),
 )
 
 /** Sent to the web view as one object, next to the existing source/episode fields. */
@@ -83,31 +89,30 @@ internal class PlayerControlsSourceTracks(
     private val episodeFilter: StreamAudioQualityFilter,
     private val options: SourceTrackOptions,
 ) {
-    /** Handles the web view messages of these panels; false for any other message. */
-    fun handleEvent(runtime: PlayerScreenRuntime, type: String, value: Double): Boolean {
-        val index = value.toInt()
-        when (type) {
-            "selectSourceLanguage" -> sourceFilter.selectLanguageChip(index)
-            "selectSourceQuality" -> sourceFilter.selectQualityChip(index)
-            "selectEpisodeStreamLanguage" -> episodeFilter.selectLanguageChip(index)
-            "selectEpisodeStreamQuality" -> episodeFilter.selectQualityChip(index)
-            "selectSourceAudioLanguage" -> {
-                val language = options.languages.getOrNull(index)?.key ?: return true
-                runtime.selectSourceAudioLanguage(language)
-            }
-            "selectSourceQualityCurrentAudio" -> {
-                val quality = options.qualitiesWithCurrentAudio.getOrNull(index)?.bucket ?: return true
+    /**
+     * Handles the web view messages of these panels; false for any other message. A click comes as
+     * "event:id", with the id the item was drawn with rather than its index: the panels search the
+     * sources while open, so the list may change under the click.
+     */
+    fun handleEvent(runtime: PlayerScreenRuntime, type: String): Boolean {
+        val id = type.substringAfter(':', "")
+        when (type.substringBefore(':')) {
+            "openSourceTracks" -> runtime.loadSourcesForTrackPanels()
+            "closeSourceTracks" -> runtime.stopSourceTracksSearch()
+            "selectSourceLanguage" -> if (id.isNotEmpty()) sourceFilter.onLanguageSelected(id)
+            "selectSourceQuality" -> if (id.isNotEmpty()) sourceFilter.onQualitySelected(id)
+            "selectEpisodeStreamLanguage" -> if (id.isNotEmpty()) episodeFilter.onLanguageSelected(id)
+            "selectEpisodeStreamQuality" -> if (id.isNotEmpty()) episodeFilter.onQualitySelected(id)
+            "selectSourceAudioLanguage" -> if (id.isNotEmpty()) runtime.selectSourceAudioLanguage(id)
+            "selectSourceQualityCurrentAudio", "selectSourceQualityAll" -> {
+                val quality = qualityBucket(id) ?: return true
                 runtime.selectSourceQuality(quality, options.currentLanguage)
             }
-            "selectSourceQualityAll" -> {
-                val quality = options.allQualities.getOrNull(index)?.bucket ?: return true
-                runtime.selectSourceQuality(quality, options.currentLanguage)
-            }
-            // value = quality index * 1000 + language index, from the "switch audio to" prompt.
+            // id = "quality:language", from the "switch audio to" prompt.
             "selectSourceQualityAudio" -> {
-                val quality = options.allQualities.getOrNull(index / 1000) ?: return true
-                val language = quality.languages.getOrNull(index % 1000) ?: return true
-                runtime.selectSourceQuality(quality.bucket, language)
+                val quality = qualityBucket(id.substringBefore(':')) ?: return true
+                val language = id.substringAfter(':', "").ifEmpty { return true }
+                runtime.selectSourceQuality(quality, language)
             }
             else -> return false
         }
@@ -117,13 +122,8 @@ internal class PlayerControlsSourceTracks(
 
 private const val ChipAll = "all"
 
-private fun StreamAudioQualityFilter.selectLanguageChip(index: Int) {
-    onLanguageSelected(if (index <= 0) ChipAll else languages.getOrNull(index - 1)?.key ?: return)
-}
-
-private fun StreamAudioQualityFilter.selectQualityChip(index: Int) {
-    onQualitySelected(if (index <= 0) ChipAll else qualities.getOrNull(index - 1)?.key ?: return)
-}
+private fun qualityBucket(name: String): StreamQualityBucket? =
+    StreamQualityBucket.entries.firstOrNull { it.name == name }
 
 @Composable
 private fun StreamAudioQualityFilter.languageChips(): List<PlayerControlFilterItem> {
@@ -172,6 +172,7 @@ private fun qualityItems(list: List<SourceQualityOption>, missingAudioLabel: Str
         val label = streamQualityLabel(option.bucket)
         val missing = missingAudioLabel != null && !option.hasCurrentAudio
         PlayerControlSourceOptionItem(
+            id = option.bucket.name,
             label = label,
             detail = sourcesCount(option.streamCount),
             isCurrent = option.isCurrent,
@@ -181,6 +182,7 @@ private fun qualityItems(list: List<SourceQualityOption>, missingAudioLabel: Str
                 ""
             },
             languageLabels = if (missing) option.languages.map { streamLanguageLabel(it) } else emptyList(),
+            languageIds = if (missing) option.languages else emptyList(),
         )
     }
 
@@ -212,6 +214,7 @@ internal fun PlayerScreenRuntime.rememberPlayerControlsSourceTracks(
     val audioOptions = options.languages.map { option ->
         val sources = sourcesCount(option.streamCount)
         PlayerControlSourceOptionItem(
+            id = option.key,
             label = streamLanguageLabel(option.key),
             detail = option.bestQuality?.let {
                 stringResource(Res.string.player_source_tracks_best_quality, streamQualityLabel(it), sources)
@@ -300,7 +303,9 @@ private fun PlayerScreenRuntime.buildSourceTrackOptions(
     streams: List<StreamItem>,
     preferredTargets: List<String>,
 ): SourceTrackOptions {
-    val traits = streams.map { it.streamTraits() }
+    // Only what a pick here can start (the autoplay's rule): a language or quality without it isn't offered.
+    val debrid = DebridSettingsRepository.snapshot()
+    val traits = streams.filter { it.isAutoPlayableWith(debrid) }.map { it.streamTraits() }
     val current = currentSourceStream(streams)
     val currentLanguage = currentAudioLanguage(current)
     val currentQuality = current?.streamTraits()?.quality
@@ -345,18 +350,20 @@ private fun PlayerScreenRuntime.buildSourceTrackOptions(
     )
 }
 
-/** Best source for a language and/or quality: exact language first, then best quality, list order. */
 /**
  * Best source for a language and/or quality, by the shared ranking (StreamSourceRanking.kt): a
  * language pick stays within the quality cap when it can; a quality picked by hand has no cap. Ties
- * prefer the release group and the addon playing now.
+ * prefer the release group and the addon playing now. Only sources autoplay would start.
  */
 private fun PlayerScreenRuntime.bestSourceStream(
     streams: List<StreamItem>,
     language: String?,
     quality: StreamQualityBucket?,
 ): StreamItem? {
-    val scoped = if (quality == null) streams else streams.filter { it.streamTraits().quality == quality }
+    val debrid = DebridSettingsRepository.snapshot()
+    val scoped = streams.filter {
+        it.isAutoPlayableWith(debrid) && (quality == null || it.streamTraits().quality == quality)
+    }
     return rankSourceStreams(
         scoped,
         SourceRanking(
@@ -407,6 +414,8 @@ private fun PlayerScreenRuntime.selectSourceQuality(quality: StreamQualityBucket
 }
 
 private fun PlayerScreenRuntime.switchSourceForTrackPanel(stream: StreamItem, language: String?) {
+    // A choice by hand, as in the Fontes panel: the failover doesn't replace it.
+    markManualSourcePick(stream)
     if (requestP2pConsentForPlayerControls(stream = stream, episode = null)) return
     // The new stream restores this title's saved audio choice, so it starts on the language picked here.
     if (language != null) {
@@ -414,4 +423,30 @@ private fun PlayerScreenRuntime.switchSourceForTrackPanel(stream: StreamItem, la
     }
     switchToSource(stream)
     playerControlsCloseModalsToken += 1
+}
+
+/**
+ * The audio or quality panel opened: they list every source of what plays, so search them (usually
+ * kept from the start). Not a refresh, even after a playback error: that is the Fontes panel's.
+ */
+internal fun PlayerScreenRuntime.loadSourcesForTrackPanels() {
+    val videoId = activeVideoId ?: return
+    sourceTracksPanelSearching = true
+    PlayerStreamsRepository.loadSources(
+        type = contentType ?: parentMetaType,
+        videoId = videoId,
+        season = activeSeasonNumber,
+        episode = activeEpisodeNumber,
+    )
+}
+
+/**
+ * The panel left the screen: stop the search it started (and pause the plugins again), unless the
+ * Fontes panel or the source failover is using it now.
+ */
+internal fun PlayerScreenRuntime.stopSourceTracksSearch() {
+    if (!sourceTracksPanelSearching) return
+    sourceTracksPanelSearching = false
+    if (showSourcesPanel || sourceFailover.inProgress) return
+    PlayerStreamsRepository.stopSourcesLoading()
 }
