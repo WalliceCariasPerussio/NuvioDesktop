@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -485,9 +486,12 @@ internal fun StreamAudioQualityFilterRow(
             label = stringResource(Res.string.stream_filter_audio).takeIf { filter.totalCount > 0 },
         ) {
             if (onRefresh != null) {
+                // Spins until the addons finish, like the upstream refresh chip.
+                val rotation = rememberRefreshRotation(isLoading)
                 StreamFilterChip(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = stringResource(Res.string.streams_refresh),
+                    iconModifier = Modifier.graphicsLayer { rotationZ = rotation.value },
                     selected = false,
                     onClick = onRefresh,
                 )
@@ -578,6 +582,7 @@ private fun StreamFilterChip(
     count: Int? = null,
     icon: ImageVector? = null,
     contentDescription: String? = null,
+    iconModifier: Modifier = Modifier,
 ) {
     val containerColor by animateColorAsState(
         targetValue = if (selected) {
@@ -615,7 +620,7 @@ private fun StreamFilterChip(
                     imageVector = icon,
                     contentDescription = contentDescription,
                     tint = contentColor,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(20.dp).then(iconModifier),
                 )
             }
             if (label != null) {
