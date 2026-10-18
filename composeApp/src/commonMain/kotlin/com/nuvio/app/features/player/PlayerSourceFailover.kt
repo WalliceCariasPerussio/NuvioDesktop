@@ -282,7 +282,10 @@ internal fun PlayerScreenRuntime.BindSourceStallWatch() {
         shouldPlay &&
         playbackSnapshot.isLoading &&
         errorMessage == null &&
-        playerControlsPendingP2pSwitch == null
+        playerControlsPendingP2pSwitch == null &&
+        // Someone already looking at the list (the Compose panels; the desktop's HTML ones aren't seen here).
+        !showSourcesPanel &&
+        !showEpisodesPanel
     LaunchedEffect(
         activePlaybackKey,
         watching,
