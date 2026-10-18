@@ -275,6 +275,8 @@ internal fun PlayerScreenRuntime.offerOtherSources(stalled: Boolean): Boolean {
     scrubbingPositionMs = null
     // Ends the loading screen, which covers the list and the message (the desktop hides its controls there).
     initialLoadCompleted = true
+    // That would also show "Skip intro" for a source that never loaded, whose seek goes nowhere.
+    skipIntervalDismissed = true
     scope.launch {
         val message = getString(if (stalled) Res.string.player_source_stalled else Res.string.player_source_failed)
         if (activePlaybackKey != playback) return@launch
