@@ -433,7 +433,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         openingArtwork = background ?: poster,
         openingLogo = logo,
         openingTitle = title,
-        openingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
+        openingMessage = sourceFailover.notice ?: if (playerSettingsUiState.showPlayerLoadingStatus) { // fork
             p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
                 showStatus = true,
                 controllerReady = playerController != null,
@@ -1686,7 +1686,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             logo = logo,
             title = title,
             onBackWithProgress = { requestBack() },
-            openingLoadingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
+            openingLoadingMessage = sourceFailover.notice ?: if (playerSettingsUiState.showPlayerLoadingStatus) { // fork
                 p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
                     showStatus = true,
                     controllerReady = playerController != null,
