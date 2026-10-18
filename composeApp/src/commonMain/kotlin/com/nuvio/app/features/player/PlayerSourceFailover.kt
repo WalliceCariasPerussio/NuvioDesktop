@@ -1,10 +1,12 @@
 package com.nuvio.app.features.player
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.debrid.DebridSettings
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.p2p.P2pSettingsRepository
+import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.streams.SourceRanking
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamDebridCacheState
@@ -14,14 +16,22 @@ import com.nuvio.app.features.streams.isAutoPlayableWith
 import com.nuvio.app.features.streams.rankSourceStreams
 import com.nuvio.app.features.streams.sourceKey
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
+import com.nuvio.app.isDesktop
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.player_source_failed
+import nuvio.composeapp.generated.resources.player_source_stalled
+import org.jetbrains.compose.resources.getString
 
 // Fork: Netflix-like failover. In the "best in my language" autoplay mode, when the source playing
 // fails or turns out to be an addon's error clip, play the next best source in the same language
@@ -34,7 +44,11 @@ private const val SwitchWatchMs = 20_000L
 private const val ShortClipCheckAfterMs = 2_000L
 /** ~48 Mbps: a real clip this short can't be bigger than that. */
 private const val MaxRealClipBytesPerSecond = 6_000_000L
-private val failoverLog = Logger.withTag("SourceFailover")
+/** Buffering with nothing arriving for this long is a dead source, not a slow one. */
+private const val StallTimeoutMs = 45_000L
+/** A torrent needs longer to find peers and fetch its first pieces. */
+private const val P2pStallTimeoutMs = 90_000L
+private val failoverLog =Logger.withTag("SourceFailover")
 
 internal class SourceFailoverState(
     /** Identity the player gave the source it opened with (its first activeSourceIdentityKey). */
@@ -61,6 +75,8 @@ internal class SourceFailoverState(
     var declaredSize: Pair<String?, Long?>? = launchSourceKey to launch?.sourceVideoSize
     /** Source whose short clip was already checked: snapshots check each source once. */
     var shortClipCheckedKey: String? = null
+    /** Playback whose trouble already put the source list up: the stall watch fires once per source. */
+    var troublePlayback: PlaybackKey? = null
     /** Bumped to open the source list in the player controls (they are HTML on the desktop). */
     var openSourcesToken by mutableIntStateOf(0)
 
@@ -220,8 +236,68 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
 
 /** No other source: the error for a playback failure, the source list for an addon's error clip. */
 private fun PlayerScreenRuntime.onFailoverExhausted(failureMessage: String?) {
-    // The controls show the list (and themselves) when the token changes.
-    if (failureMessage != null) showPlaybackError(failureMessage) else sourceFailover.openSourcesToken++
+    if (failureMessage == null) {
+        // The controls show the list (and themselves) when the token changes.
+        sourceFailover.openSourcesToken++
+    } else if (!offerOtherSources(stalled = false)) {
+        showPlaybackError(failureMessage)
+    }
+}
+
+/**
+ * A source that failed or never started, with no automatic switch (picked by hand, or not in the
+ * "best in my language" mode): says so and puts the source list up instead of the error screen,
+ * which only leaves the player. False when there is no list to offer (no episode/title to search).
+ */
+internal fun PlayerScreenRuntime.offerOtherSources(stalled: Boolean): Boolean {
+    if (activeVideoId == null) return false
+    val playback = activePlaybackKey
+    sourceFailover.troublePlayback = playback
+    removeFailedStreamFromCache()
+    scrubbingPositionMs = null
+    scope.launch {
+        val message = getString(if (stalled) Res.string.player_source_stalled else Res.string.player_source_failed)
+        if (activePlaybackKey != playback) return@launch
+        if (isDesktop) {
+            playerNotificationMessage = message
+            playerNotificationToken += 1L
+        } else {
+            NuvioToastController.show(message)
+        }
+    }
+    if (isDesktop) sourceFailover.openSourcesToken++ else openSourcesPanel()
+    return true
+}
+
+/**
+ * Buffering that never ends (a dead link, a torrent without peers) used to wait forever. After
+ * [StallTimeoutMs] without the position, the buffer or the torrent's download moving, the source
+ * counts as failed: the next one plays in the automatic mode, else the source list opens.
+ */
+@Composable
+internal fun PlayerScreenRuntime.BindSourceStallWatch() {
+    val p2pBytes = (p2pStreamingState as? P2pStreamingState.Streaming)
+        ?.let { maxOf(it.downloadedBytes, it.deliveredBytes) } ?: 0L
+    val watching = (activeSourceUrl.isNotBlank() || activeTorrentInfoHash != null) &&
+        shouldPlay &&
+        playbackSnapshot.isLoading &&
+        errorMessage == null &&
+        playerControlsPendingP2pSwitch == null
+    LaunchedEffect(
+        activePlaybackKey,
+        watching,
+        playbackSnapshot.positionMs,
+        playbackSnapshot.bufferedPositionMs,
+        p2pBytes,
+    ) {
+        if (!watching) return@LaunchedEffect
+        val playback = activePlaybackKey
+        delay(if (activeTorrentInfoHash != null) P2pStallTimeoutMs else StallTimeoutMs)
+        if (sourceFailover.troublePlayback == playback || sourceFailover.inProgress) return@LaunchedEffect
+        failoverLog.w { "no progress for the stall timeout: ${activeSourceUrl.ifBlank { activeTorrentInfoHash }}" }
+        val message = getString(Res.string.player_source_stalled)
+        if (!tryAutoSourceFailover(message)) offerOtherSources(stalled = true)
+    }
 }
 
 /**
