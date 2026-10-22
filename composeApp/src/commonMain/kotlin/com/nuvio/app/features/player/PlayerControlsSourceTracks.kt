@@ -292,7 +292,7 @@ private fun PlayerScreenRuntime.currentSourceStream(streams: List<StreamItem>): 
 private fun PlayerScreenRuntime.currentAudioLanguage(current: StreamItem?): String? {
     val streamLanguages = current?.streamTraits()?.audioLanguages.orEmpty()
     val trackLanguage = audioTracks.firstOrNull { it.index == selectedAudioIndex }
-        ?.language
+        ?.spokenLanguage()
         ?.let(::streamLanguageCode)
         ?: return streamLanguages.firstOrNull()
     return streamLanguages.firstOrNull { it == trackLanguage }
@@ -408,9 +408,7 @@ internal fun PlayerScreenRuntime.nextEpisodeAudioLanguages(): List<String> =
 
 /** "Todos" scope: plays the language; on the stream playing if it carries it, else on its best source. */
 private fun PlayerScreenRuntime.selectSourceAudioLanguage(language: String) {
-    val embedded = audioTracks.firstOrNull { track ->
-        track.language?.let(::streamLanguageCode)?.let { sameLanguage(it, language) } == true
-    }
+    val embedded = audioTracks.getOrNull(findSpokenAudioTrackPosition(audioTracks, language))
     if (embedded != null) {
         // Same as picking the track in "Stream atual".
         selectedAudioIndex = embedded.index

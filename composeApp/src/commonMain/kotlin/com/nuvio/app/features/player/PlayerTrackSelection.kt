@@ -470,7 +470,8 @@ internal fun findPreferredAudioTrackIndex(
     languages: List<String>,
 ): Int {
     for (language in languages) {
-        val index = tracks.indexOfFirst { languageMatchesPreference(it.language, language) }
+        // Fork: by the language heard, which a title can name over the tag (PlayerAudioTrackLanguage.kt).
+        val index = findSpokenAudioTrackPosition(tracks, language)
         if (index >= 0) return index
         val byLabel = tracks.indexOfFirst {
             normalizeLanguageCode(it.language) == null && audioTrackMatchesLanguage(it, language)
@@ -502,6 +503,9 @@ internal fun findPersistedAudioTrackIndex(
         strictCandidates.firstOrNull { it.label.trim().lowercase().contains(targetName) }
             ?.let { return it.index }
     }
+    // Fork: the language heard, which the saved track's title can name over its tag (PlayerAudioTrackLanguage.kt).
+    val spokenPosition = findSpokenAudioTrackPosition(tracks, audioTitleLanguage(preference.audioName) ?: targetLanguage)
+    if (spokenPosition >= 0) return tracks[spokenPosition].index
     if (targetLanguage == null) return -1
     val languageCandidates = tracks.filter { languageMatchesPreference(it.language, targetLanguage) }
     val targetVariant = SubtitleLanguageMatching.detectTrackLanguageVariant(
