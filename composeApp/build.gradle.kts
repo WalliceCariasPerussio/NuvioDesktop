@@ -477,7 +477,13 @@ val desktopReleaseVersionCode = (
     ?.takeIf { it.isNotBlank() }
     ?.toIntOrNull()
     ?: 1
-val desktopReleasePackageVersion = jpackageCompatibleVersion(desktopReleaseVersionName)
+// Fork: .github/workflows/fork-desktop-release.yml passes 1.<minor>.<commit count>, because Windows Installer
+// only upgrades when this numeric version grows and every fork build of 0.1.32-alpha would be 1.1.32.
+val desktopReleasePackageVersion = providers.gradleProperty("nuvio.desktop.packageVersion").orNull
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::jpackageCompatibleVersion)
+    ?: jpackageCompatibleVersion(desktopReleaseVersionName)
 val windowsMsiUpgradeUuid = "395990ee-9b8a-3548-922c-e7a23a495b8d"
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull

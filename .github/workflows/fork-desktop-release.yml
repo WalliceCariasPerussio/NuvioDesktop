@@ -1,0 +1,233 @@
+name: Fork Desktop Release
+
+# Fork only: on every push to Dev, builds the Windows MSI and publishes it as the latest release of this
+# fork, which the in-app updater checks (AppUpdaterPlatform.desktop.kt). Installing it replaces the
+# official Nuvio (same upgrade code); the data in %APPDATA%\Nuvio stays.
+# The version is x.y.z-fork.<commit count>[.<upstream suffix>] for the updater and <x+1>.y.<commit count>
+# for the MSI, because Windows Installer only upgrades when that numeric version grows.
+
+on:
+  push:
+    branches:
+      - Dev
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build and publish Windows MSI
+    runs-on: windows-2022
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64 }}
+      WEBVIEW2_VERSION: 1.0.4078.44
+
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v6
+        with:
+          # The version comes from the commit count.
+          fetch-depth: 0
+
+      - name: Identify Windows runtime LFS objects
+        id: lfs
+        shell: bash
+        run: |
+          runtime_tree="$(git ls-tree -r HEAD composeApp/src/desktopMain/native/windows/runtime)"
+          echo "key=$(printf '%s' "${runtime_tree}" | sha256sum | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+
+      # libmpv-2.dll (~110 MB) comes from Git LFS; caching it saves the LFS bandwidth on every push.
+      - name: Cache Windows runtime LFS objects
+        uses: actions/cache@v5
+        with:
+          path: .git/lfs/objects
+          key: lfs-windows-runtime-${{ steps.lfs.outputs.key }}
+
+      - name: Fetch Windows runtime
+        shell: bash
+        run: |
+          git lfs pull --include="composeApp/src/desktopMain/native/windows/runtime/**" --exclude=""
+          runtime_path="composeApp/src/desktopMain/native/windows/runtime/libmpv-2.dll"
+          if [[ ! -f "${runtime_path}" ]] || (( $(wc -c < "${runtime_path}") < 1000000 )); then
+            echo "The bundled Windows libmpv runtime was not materialized from Git LFS." >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure desktop runtime
+        shell: bash
+        run: |
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            echo "Missing NUVIO_DESKTOP_LOCAL_PROPERTIES_BASE64: without it login and sync do not work." >&2
+            exit 1
+          fi
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_(STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD))[[:space:]]*=/d' local.properties
+
+          for property_name in NUVIO_SUPABASE_URL NUVIO_SUPABASE_ANON_KEY TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
+            if ! grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*.+$" local.properties; then
+              echo "Missing required desktop property: ${property_name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Compute fork version
+        id: version
+        shell: bash
+        run: |
+          base_name="$(sed -nE 's/^[[:space:]]*VERSION_NAME[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\1/p' composeApp/Configuration/DesktopVersion.properties | tr -d '\r' | head -n 1)"
+          if [[ ! "${base_name}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-(.+))?$ ]]; then
+            echo "Unexpected desktop VERSION_NAME: ${base_name}" >&2
+            exit 1
+          fi
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          upstream_suffix="${BASH_REMATCH[5]}"
+          count="$(git rev-list --count HEAD)"
+
+          version_name="${major}.${minor}.${patch}-fork.${count}${upstream_suffix:+.${upstream_suffix}}"
+          # Upstream's own MSIs coerce 0.y.z to 1.y.z; major + 1 matches that today and keeps growing
+          # when upstream reaches 1.0.0.
+          package_version="$(( major + 1 )).${minor}.${count}"
+          if (( count > 65535 )); then
+            echo "Commit count ${count} does not fit the MSI build field." >&2
+            exit 1
+          fi
+
+          echo "Desktop ${version_name}, MSI ${package_version}"
+          echo "name=${version_name}" >> "${GITHUB_OUTPUT}"
+          echo "package=${package_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install WebView2 SDK
+        shell: pwsh
+        run: |
+          nuget install Microsoft.Web.WebView2 `
+            -Version $env:WEBVIEW2_VERSION `
+            -OutputDirectory "$env:RUNNER_TEMP\nuget" `
+            -DirectDownload `
+            -NonInteractive `
+            -NoCache
+
+          $webView2Root = Join-Path $env:RUNNER_TEMP "nuget\Microsoft.Web.WebView2.$env:WEBVIEW2_VERSION"
+          $loaderLibrary = Join-Path $webView2Root "build\native\x64\WebView2Loader.dll.lib"
+          if (-not (Test-Path $loaderLibrary)) {
+            throw "WebView2Loader.dll.lib was not found at $loaderLibrary"
+          }
+          "WEBVIEW2_ROOT=$webView2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.package }}
+        run: |
+          & .\gradlew.bat `
+            :composeApp:packageReleaseMsi `
+            "-Pnuvio.webview2.dir=$env:WEBVIEW2_ROOT" `
+            "-Pnuvio.desktop.versionName=$env:VERSION_NAME" `
+            "-Pnuvio.desktop.packageVersion=$env:PACKAGE_VERSION" `
+            "-Pcompose.desktop.packaging.checkJdkVendor=false" `
+            --no-configuration-cache `
+            --no-daemon `
+            --stacktrace
+          if ($LASTEXITCODE -ne 0) {
+            throw "Gradle failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Verify MSI
+        shell: pwsh
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          $msiRelativePath = "composeApp\build\compose\release-msis\Nuvio-Windows-x64-$env:VERSION_NAME.msi"
+          if (-not (Test-Path $msiRelativePath)) {
+            throw "Expected MSI was not produced: $msiRelativePath"
+          }
+          $msiPath = (Resolve-Path $msiRelativePath).Path
+          $extractDir = Join-Path $env:RUNNER_TEMP "nuvio-msi"
+          $extractLog = Join-Path $env:RUNNER_TEMP "nuvio-msi-extract.log"
+          New-Item -ItemType Directory -Path $extractDir | Out-Null
+
+          $extractProcess = Start-Process `
+            -FilePath msiexec.exe `
+            -ArgumentList @("/a", "`"$msiPath`"", "/qn", "TARGETDIR=`"$extractDir`"", "/l*v", "`"$extractLog`"") `
+            -Wait `
+            -PassThru
+          if ($extractProcess.ExitCode -ne 0) {
+            Get-Content $extractLog -Tail 200
+            throw "MSI administrative extraction failed with exit code $($extractProcess.ExitCode)."
+          }
+
+          $appJar = Get-ChildItem $extractDir -Recurse -Filter "composeApp-desktop-*.jar" | Select-Object -First 1
+          if ($null -eq $appJar) {
+            throw "The extracted MSI does not contain the desktop application JAR."
+          }
+          $jarEntries = & jar tf $appJar.FullName
+          $requiredEntries = @(
+            "native/windows/player_bridge.dll",
+            "native/windows/libmpv-2.dll",
+            "native/windows/WebView2Loader.dll",
+            "native/windows/nuvio_engine.dll"
+          )
+          foreach ($entry in $requiredEntries) {
+            if ($jarEntries -notcontains $entry) {
+              throw "The extracted MSI application is missing $entry"
+            }
+          }
+          Get-Item $msiPath | Format-List Name, Length
+
+      - name: Publish release
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.package }}
+        run: |
+          tag="v${VERSION_NAME}"
+          msi_path="composeApp/build/compose/release-msis/Nuvio-Windows-x64-${VERSION_NAME}.msi"
+
+          {
+            echo "Fork build ${VERSION_NAME} (MSI ${PACKAGE_VERSION}) of ${GITHUB_SHA::8}"
+            echo
+            git log -1 --format='%s'
+          } > "${RUNNER_TEMP}/release-notes.md"
+
+          # A re-run of the same commit produces the same version.
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete "${tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+          fi
+          gh release create "${tag}" "${msi_path}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "Nuvio Desktop ${VERSION_NAME}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --latest
+
+      - name: Delete old fork releases
+        shell: bash
+        run: |
+          gh release list --repo "${GITHUB_REPOSITORY}" --limit 1000 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-fork\\."))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' \
+            | while read -r old_tag; do
+                gh release delete "${old_tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+              done
