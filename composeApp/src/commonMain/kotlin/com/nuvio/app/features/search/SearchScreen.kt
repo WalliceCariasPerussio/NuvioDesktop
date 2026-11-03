@@ -55,6 +55,11 @@ import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.firstEnabledManifestError
+import com.nuvio.app.features.ai.AiAssistantModeButton
+import com.nuvio.app.features.ai.AiAssistantPromptField
+import com.nuvio.app.features.ai.AiAssistantRepository
+import com.nuvio.app.features.ai.AiAssistantScrollEffect
+import com.nuvio.app.features.ai.aiAssistantContent
 import com.nuvio.app.features.addons.hasPendingEnabledManifests
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.MetaPreview
@@ -75,6 +80,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_retry
+import nuvio.composeapp.generated.resources.ai_assistant_title
 import nuvio.composeapp.generated.resources.compose_nav_search
 import nuvio.composeapp.generated.resources.home_empty_no_sources_title
 import nuvio.composeapp.generated.resources.search_empty_no_sources_message
@@ -136,6 +142,9 @@ fun SearchScreen(
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
+    var aiMode by rememberSaveable { mutableStateOf(false) }
+    val aiUiState by AiAssistantRepository.uiState.collectAsStateWithLifecycle()
+    if (aiMode) AiAssistantScrollEffect(listState)
     var lastRequestedQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var observedOfflineState by remember { mutableStateOf(false) }
     val discoverInFocus by remember(query, listState) {
@@ -177,8 +186,8 @@ fun SearchScreen(
         }
     }
 
-    ScreenActivityEffect(listState, query, discoverUiState.canLoadMore, discoverUiState.isLoading) { screenActive ->
-        if (!screenActive || query.isNotBlank()) return@ScreenActivityEffect
+    ScreenActivityEffect(listState, query, aiMode, discoverUiState.canLoadMore, discoverUiState.isLoading) { screenActive ->
+        if (!screenActive || query.isNotBlank() || aiMode) return@ScreenActivityEffect
 
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->
@@ -253,6 +262,7 @@ fun SearchScreen(
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
         }
         val headerTitle = when {
+            aiMode -> stringResource(Res.string.ai_assistant_title)
             query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
             discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
             else -> stringResource(Res.string.compose_nav_search)
@@ -279,10 +289,13 @@ fun SearchScreen(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
                         topPadding = topChromePadding,
+                        actions = { AiAssistantModeButton(active = aiMode, onClick = { aiMode = !aiMode }) },
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        NuvioInputField(
+                        if (aiMode) {
+                            AiAssistantPromptField(modifier = Modifier.focusRequester(focusRequester))
+                        } else NuvioInputField(
                             value = query,
                             onValueChange = {
                                 focusRequester.captureFocus()
@@ -316,7 +329,16 @@ fun SearchScreen(
             }
         }
 
-        if (query.isBlank()) {
+        if (aiMode) {
+            aiAssistantContent(
+                state = aiUiState,
+                horizontalPadding = homeSectionPadding,
+                watchedKeys = watchedUiState.watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                onPosterClick = onPosterClick,
+                onPosterLongClick = onPosterLongClick,
+            )
+        } else if (query.isBlank()) {
             if (isSearchFocused && recentSearches.isNotEmpty()) {
                 focusRequester.captureFocus()
                 item(key = "recent_searches") {
