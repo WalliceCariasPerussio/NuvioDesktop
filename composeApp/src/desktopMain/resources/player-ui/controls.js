@@ -108,9 +108,6 @@ const subtitleStyleRail = document.getElementById("subtitleStyleRail");
 const subtitleStyleRailTitle = document.getElementById("subtitleStyleRailTitle");
 const addonSubtitleList = document.getElementById("addonSubtitleList");
 const subtitleStylePanel = document.getElementById("subtitleStylePanel");
-const customSubtitleStyleLabel = document.getElementById("customSubtitleStyleLabel");
-const customSubtitleStyleToggle = document.getElementById("customSubtitleStyleToggle");
-const customSubtitleStyleControls = document.getElementById("customSubtitleStyleControls");
 const subtitleDelayLabel = document.getElementById("subtitleDelayLabel");
 const subtitleDelayMinus = document.getElementById("subtitleDelayMinus");
 const subtitleDelayValue = document.getElementById("subtitleDelayValue");
@@ -285,7 +282,6 @@ let state = {
   subtitleBuiltInTabLabel: "Built-in",
   subtitleAddonsTabLabel: "Addons",
   subtitleStyleTabLabel: "Style",
-  customSubtitleStyleLabel: "Use custom styling",
   forcedLabel: "Forced",
   noneLabel: "None",
   fetchSubtitlesLabel: "Tap to fetch subtitles",
@@ -387,7 +383,6 @@ let state = {
   isLoadingAddonSubtitles: false,
   selectedAddonSubtitleId: "",
   useCustomSubtitles: false,
-  customSubtitleStylingEnabled: true,
   subtitleDelayMs: 0,
   hasSelectedAddonSubtitle: false,
   subtitleAutoSyncCapturedPositionMs: -1,
@@ -435,8 +430,6 @@ let pendingIsPlaying = null;
 let pendingPlaybackTimer = 0;
 let lastNativeIsPlaying = true;
 let suppressNextPointerToggleClick = false;
-let pendingCustomSubtitleStyling = null;
-let pendingCustomSubtitleStylingTimer = 0;
 let pendingSpeedIndex = null;
 let pendingSpeedTimer = 0;
 let submitIntroDraft = {
@@ -481,16 +474,31 @@ const pipLockOverlay = document.getElementById("pipLockOverlay");
 const pipLockBadge = document.getElementById("pipLockBadge");
 const pipLockLabel = () => String(state.lockLabel || "Lock player controls").trim();
 const pipUnlockLabel = () => String(state.unlockLabel || "Unlock player controls").trim();
+const setTextContent = (element, text) => {
+  const value = String(text ?? "");
+  const only = element.firstChild;
+  if (only && only === element.lastChild && only.nodeType === 3) {
+    if (only.data !== value) only.data = value;
+  } else if (value || only) {
+    element.textContent = value;
+  }
+};
+
+const setAttr = (element, name, value) => {
+  const text = String(value);
+  if (element.getAttribute(name) !== text) element.setAttribute(name, text);
+};
+
 const syncPipLockLabels = () => {
   const lockLabel = isPipLocked ? pipUnlockLabel() : pipLockLabel();
   if (pipLockButton) {
-    pipLockButton.setAttribute("aria-label", lockLabel);
-    pipLockButton.setAttribute("title", lockLabel);
+    setAttr(pipLockButton, "aria-label", lockLabel);
+    setAttr(pipLockButton, "title", lockLabel);
   }
   if (pipLockBadge) {
     const unlockLabel = pipUnlockLabel();
-    pipLockBadge.setAttribute("aria-label", unlockLabel);
-    pipLockBadge.setAttribute("title", unlockLabel);
+    setAttr(pipLockBadge, "aria-label", unlockLabel);
+    setAttr(pipLockBadge, "title", unlockLabel);
   }
 };
 const setPipLocked = locked => {
@@ -548,10 +556,10 @@ const syncFullscreenButtons = () => {
   const isFullscreen = Boolean(state.isFullscreen);
   const icon = isFullscreen ? "#icon-fullscreen-exit" : "#icon-fullscreen";
   const label = isFullscreen ? "Exit fullscreen" : "Enter fullscreen";
-  if (fullscreenIcon) fullscreenIcon.setAttribute("href", icon);
-  if (openingFullscreenIcon) openingFullscreenIcon.setAttribute("href", icon);
-  if (fullscreenButton) fullscreenButton.setAttribute("aria-label", label);
-  if (openingFullscreenButton) openingFullscreenButton.setAttribute("aria-label", label);
+  if (fullscreenIcon) setAttr(fullscreenIcon, "href", icon);
+  if (openingFullscreenIcon) setAttr(openingFullscreenIcon, "href", icon);
+  if (fullscreenButton) setAttr(fullscreenButton, "aria-label", label);
+  if (openingFullscreenButton) setAttr(openingFullscreenButton, "aria-label", label);
 };
 
 const togglePlayerFullscreen = (fromEscape = false) => {
@@ -859,23 +867,42 @@ const setProgress = (positionMs, durationMs, bufferedPositionMs) => {
   seek.value = Math.round(percent * 10);
   seek.style.setProperty("--progress", `${percent}%`);
   seek.style.setProperty("--bufferProgress", `${bufferPercent}%`);
-  positionLabel.textContent = formatTime(positionMs);
-  durationLabel.textContent = formatTime(durationMs);
+  setTextContent(positionLabel, formatTime(positionMs));
+  setTextContent(durationLabel, formatTime(durationMs));
   if (timeLabel) {
     durationMs = durationMs - (durationMs % 1000);
     if (timeLabelShowRemaining) {
       let remainingTimeMs = durationMs - positionMs + (positionMs % 1000 == 0 ? 0 : 1000);
-      timeLabel.textContent = `-${formatTime(remainingTimeMs)}`;
+      setTextContent(timeLabel, `-${formatTime(remainingTimeMs)}`);
     } else {
-      timeLabel.textContent = `${formatTime(positionMs)} / ${formatTime(durationMs)}`;
+      setTextContent(timeLabel, `${formatTime(positionMs)} / ${formatTime(durationMs)}`);
     }
   }
 };
 
 const setText = (element, text) => {
-  element.textContent = text || "";
+  setTextContent(element, text || "");
   element.hidden = !text;
 };
+
+function formatCssColor(colorStr) {
+  if (!colorStr) return null;
+  let str = String(colorStr).trim();
+  if (!str) return null;
+  const hex = str.replace(/^#/, "");
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return '#' + hex;
+  }
+  if (/^[0-9a-fA-F]{8}$/.test(hex)) {
+    const a = parseInt(hex.substring(0, 2), 16) / 255;
+    const r = parseInt(hex.substring(2, 4), 16);
+    const g = parseInt(hex.substring(4, 6), 16);
+    const b = parseInt(hex.substring(6, 8), 16);
+    if (a <= 0) return null;
+    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+  }
+  return str.startsWith('#') ? str : '#' + str;
+}
 
 let playerBadgesSignature = "";
 
@@ -888,8 +915,12 @@ const renderPlayerBadges = () => {
   badges.forEach((badge) => {
     const chip = document.createElement("span");
     chip.className = "player-badge";
-    if (String(badge.tagStyle || "").toLowerCase() === "filled" && badge.tagColor) chip.style.background = badge.tagColor;
-    if (badge.borderColor) chip.style.borderColor = badge.borderColor;
+    if (String(badge.tagStyle || "").toLowerCase() === "filled") {
+      const bg = formatCssColor(badge.tagColor);
+      if (bg) chip.style.background = bg;
+    }
+    const borderColor = formatCssColor(badge.borderColor);
+    if (borderColor) chip.style.borderColor = borderColor;
     const image = document.createElement("img");
     image.alt = badge.name || "";
     image.draggable = false;
@@ -911,8 +942,8 @@ const setActionButtonLabel = (command, label) => {
   if (!button) return;
   const text = String(label || "").trim();
   if (!text) return;
-  button.setAttribute("aria-label", text);
-  button.setAttribute("title", text);
+  setAttr(button, "aria-label", text);
+  setAttr(button, "title", text);
 };
 
 const setImageVisualState = (element, stateName) => {
@@ -1292,6 +1323,7 @@ const appendSubtitleLanguageRow = item => {
     activeSubtitleLanguageKey = item.key;
     const options = subtitleSelectionOptions().filter(option => option.languageKey === item.key);
     pendingSubtitleOptionId = options.some(option => option.id === pendingSubtitleOptionId) ? pendingSubtitleOptionId : "";
+    showHiddenSubtitles();
     if (item.key === "__off__") send("selectBuiltInSubtitleTrack", -1);
     renderSubtitleModal();
     if (event.detail === 0 && item.key !== "__off__") {
@@ -1322,6 +1354,7 @@ const appendSubtitleOptionRow = option => {
   row.addEventListener("click", event => {
     event.stopPropagation();
     pendingSubtitleOptionId = option.id;
+    showHiddenSubtitles();
     if (option.kind === "builtIn") send("selectBuiltInSubtitleTrack", option.index);
     else send("selectAddonSubtitle", option.index);
     renderSubtitleModal();
@@ -1490,27 +1523,12 @@ const renderAutoSyncCues = () => {
 
 const renderSubtitleStylePanel = () => {
   const style = state.subtitleStyle || {};
-  const storedCustomStyling = state.customSubtitleStylingEnabled !== false;
-  if (pendingCustomSubtitleStyling !== null && pendingCustomSubtitleStyling === storedCustomStyling) {
-    pendingCustomSubtitleStyling = null;
-    window.clearTimeout(pendingCustomSubtitleStylingTimer);
-    pendingCustomSubtitleStylingTimer = 0;
-  }
-  const customStylingEnabled = pendingCustomSubtitleStyling ?? storedCustomStyling;
   subtitleDelayLabel.textContent = state.subtitleDelayLabel || "Subtitle Delay";
   subtitleDelayValue.textContent = formatDelay(state.subtitleDelayMs);
   subtitleDelayReset.textContent = state.resetLabel || "Reset";
   autoSyncLabel.textContent = state.autoSyncLabel || "Auto Sync";
   autoSyncReload.textContent = state.reloadSmallLabel || "Reload";
   autoSyncCapture.textContent = state.captureLineLabel || "Capture";
-  customSubtitleStyleLabel.textContent = state.customSubtitleStyleLabel || "Use custom styling";
-  customSubtitleStyleToggle.textContent = customStylingEnabled
-    ? (state.onLabel || "On")
-    : (state.offLabel || "Off");
-  customSubtitleStyleToggle.classList.toggle("primary", customStylingEnabled);
-  customSubtitleStyleToggle.setAttribute("aria-pressed", customStylingEnabled ? "true" : "false");
-  customSubtitleStyleControls.classList.toggle("disabled", !customStylingEnabled);
-  customSubtitleStyleControls.setAttribute("aria-disabled", customStylingEnabled ? "false" : "true");
   fontSizeLabel.textContent = state.fontSizeLabel || "Font Size";
   fontSizeValue.textContent = `${Number(style.fontSizeSp) || 18}sp`;
   outlineLabel.textContent = state.outlineLabel || "Outline";
@@ -1802,25 +1820,6 @@ const buildSourceRow = (item, onSelect) => {
     subtitle.className = "stream-subtitle";
     subtitle.textContent = item.subtitle;
   }
-
-function formatCssColor(colorStr) {
-  if (!colorStr) return null;
-  let str = String(colorStr).trim();
-  if (!str) return null;
-  const hex = str.replace(/^#/, "");
-  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-    return '#' + hex;
-  }
-  if (/^[0-9a-fA-F]{8}$/.test(hex)) {
-    const a = parseInt(hex.substring(0, 2), 16) / 255;
-    const r = parseInt(hex.substring(2, 4), 16);
-    const g = parseInt(hex.substring(4, 6), 16);
-    const b = parseInt(hex.substring(6, 8), 16);
-    if (a <= 0) return null;
-    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
-  }
-  return str.startsWith('#') ? str : '#' + str;
-}
 
   const isTopPlacement = (item.badgePlacement || "").toUpperCase() === "TOP";
   const badges = Array.isArray(item.badges) ? item.badges.filter(b => b && b.imageURL) : [];
@@ -2414,7 +2413,7 @@ const renderChapterMarks = () => {
     }
   }
   const index = currentChapterIndex(chapters);
-  setText(chapterTitle, index >= 0 ? chapters[index].title : "");
+  setText(chapterTitle, index >= 0 && state.chapterTitleEnabled !== false ? chapters[index].title : "");
 };
 
 const renderActiveModal = (modalOpened = false) => {
@@ -2461,6 +2460,8 @@ const trackListSignature = tracks =>
     ].join(":"))
     .join("|");
 
+let openingHideTimer = 0;
+
 const renderOpeningOverlay = suppress => {
   const progress = normalizedOpeningProgress();
   const artworkUrl = setImageSource(openingArtwork, state.openingArtwork);
@@ -2475,6 +2476,15 @@ const renderOpeningOverlay = suppress => {
   const messageText = String(state.openingMessage || "").trim();
   const showHorizontalProgress = hasProgress && !logoUrl;
 
+  window.clearTimeout(openingHideTimer);
+  if (showOpening) {
+    if (openingOverlay.hidden) {
+      openingOverlay.hidden = false;
+      void openingOverlay.offsetWidth;
+    }
+  } else if (!openingOverlay.hidden) {
+    openingHideTimer = window.setTimeout(() => { openingOverlay.hidden = true; }, 260);
+  }
   root.classList.toggle("opening-active", showOpening);
   openingOverlay.classList.toggle("visible", showOpening);
   openingOverlay.classList.toggle("has-artwork", Boolean(artworkUrl));
@@ -2771,17 +2781,17 @@ const renderChrome = () => {
   if (state.pauseOverlayEnabled || showError) renderPauseMetadataOverlay(showOpening || showError);
   syncParentalGuide(showOpening || showError);
 
-  title.textContent = state.title || "";
+  setTextContent(title, state.title || "");
   setText(episode, state.episodeText);
   setText(streamTitle, state.streamTitle);
   setText(providerName, state.providerName);
   renderPlayerBadges();
-  resizeLabel.textContent = state.resizeModeLabel || "Fit";
-  speedLabel.textContent = state.playbackSpeedLabel || "1x";
-  subtitlesLabel.textContent = state.subtitlesLabel || "Subs";
-  audioLabel.textContent = state.audioLabel || "Audio";
-  sourcesLabel.textContent = state.sourcesLabel || "Sources";
-  episodesLabel.textContent = state.episodesLabel || "Episodes";
+  setTextContent(resizeLabel, state.resizeModeLabel || "Fit");
+  setTextContent(speedLabel, state.playbackSpeedLabel || "1x");
+  setTextContent(subtitlesLabel, state.subtitlesLabel || "Subs");
+  setTextContent(audioLabel, state.audioLabel || "Audio");
+  setTextContent(sourcesLabel, state.sourcesLabel || "Sources");
+  setTextContent(episodesLabel, state.episodesLabel || "Episodes");
   setActionButtonLabel("resize", state.resizeModeLabel || "Fit");
   setActionButtonLabel("speed", state.playbackSpeedLabel || "1x");
   setActionButtonLabel("subtitles", state.subtitlesLabel || "Subs");
@@ -2792,14 +2802,14 @@ const renderChrome = () => {
   setActionButtonLabel("episodes", state.episodesLabel || "Episodes");
   if (pipButton) {
     const pipLabel = String(state.pipLabel || "").trim();
-    pipButton.setAttribute("aria-label", pipLabel);
-    pipButton.setAttribute("title", pipLabel);
+    setAttr(pipButton, "aria-label", pipLabel);
+    setAttr(pipButton, "title", pipLabel);
     pipButton.hidden = !pipLabel;
   }
   syncPipLockLabels();
   const showBuffering = Boolean(!showError && state.isLoading && !activeModal && !showOpening);
   bufferingStatus.classList.toggle("visible", showBuffering);
-  bufferingStatus.setAttribute("aria-hidden", showBuffering ? "false" : "true");
+  setAttr(bufferingStatus, "aria-hidden", showBuffering ? "false" : "true");
   bufferingLoadingIndicator.setActive(showBuffering);
 
   setVisible(submitIntroButton, Boolean(state.showSubmitIntro));
@@ -2809,9 +2819,9 @@ const renderChrome = () => {
   setVisible(episodesButton, Boolean(state.showEpisodes));
   const hasChapters = Array.isArray(state.chapters) && state.chapters.length > 0;
   setVisible(chaptersButton, hasChapters);
-  chaptersLabel.textContent = state.chaptersLabel || "Chapters";
+  setTextContent(chaptersLabel, state.chaptersLabel || "Chapters");
   setActionButtonLabel("chapters", state.chaptersLabel || "Chapters");
-  streamInfoLabel.textContent = state.streamInfoLabel || "Stream info";
+  setTextContent(streamInfoLabel, state.streamInfoLabel || "Stream info");
   setActionButtonLabel("streamInfo", state.streamInfoLabel || "Stream info");
   renderChapterMarks();
   if (!hasChapters && activeModal === "chapters") closePlayerModal(false);
@@ -2819,31 +2829,31 @@ const renderChrome = () => {
 
   const playPauseLabel = isPlaying ? state.pauseLabel : state.playLabel;
   if (toggle) {
-    toggle.setAttribute("aria-label", playPauseLabel || (isPlaying ? "Pause" : "Play"));
+    setAttr(toggle, "aria-label", playPauseLabel || (isPlaying ? "Pause" : "Play"));
   }
   if (toggleIcon) {
-    toggleIcon.setAttribute("href", isPlaying ? "#icon-pause" : "#icon-play");
+    setAttr(toggleIcon, "href", isPlaying ? "#icon-pause" : "#icon-play");
   }
   if (toggleLabel) {
-    toggleLabel.textContent = playPauseLabel || (isPlaying ? "Pause" : "Play");
+    setTextContent(toggleLabel, playPauseLabel || (isPlaying ? "Pause" : "Play"));
   }
   if (nextEpisodeButton) {
     nextEpisodeButton.hidden = !state.nextEpisodePlayable;
     const nextLabel = state.nextEpisodeHeaderLabel || "Next episode";
-    nextEpisodeButton.setAttribute("aria-label", nextLabel);
-    nextEpisodeButton.setAttribute("title", nextLabel);
+    setAttr(nextEpisodeButton, "aria-label", nextLabel);
+    setAttr(nextEpisodeButton, "title", nextLabel);
     if (nextEpisodeButtonLabel) nextEpisodeButtonLabel.textContent = nextLabel;
   }
   syncFullscreenButtons();
-  backButton.setAttribute("aria-label", state.closeLabel || "Close player");
-  submitIntroButton.setAttribute("aria-label", state.submitIntroLabel || "Submit Intro");
-  videoSettingsButton.setAttribute("aria-label", state.videoSettingsLabel || "Video settings");
+  setAttr(backButton, "aria-label", state.closeLabel || "Close player");
+  setAttr(submitIntroButton, "aria-label", state.submitIntroLabel || "Submit Intro");
+  setAttr(videoSettingsButton, "aria-label", state.videoSettingsLabel || "Video settings");
   setProgress(positionMs, durationMs, bufferedPositionMs);
   if (showError) {
     skipPrompt.classList.remove("visible", "show-progress");
-    skipPrompt.setAttribute("aria-hidden", "true");
+    setAttr(skipPrompt, "aria-hidden", "true");
     nextEpisodeCard.classList.remove("visible");
-    nextEpisodeCard.setAttribute("aria-hidden", "true");
+    setAttr(nextEpisodeCard, "aria-hidden", "true");
   } else {
     renderNativePlaybackPrompts();
   }
@@ -3299,19 +3309,6 @@ autoSyncCapture.addEventListener("click", event => {
   event.stopPropagation();
   send("subtitleAutoSyncCapture", 0);
 });
-customSubtitleStyleToggle.addEventListener("click", event => {
-  event.stopPropagation();
-  if (pendingCustomSubtitleStyling !== null) return;
-  pendingCustomSubtitleStyling = !(state.customSubtitleStylingEnabled !== false);
-  renderSubtitleStylePanel();
-  send("subtitleCustomStyleToggle", 0);
-  window.clearTimeout(pendingCustomSubtitleStylingTimer);
-  pendingCustomSubtitleStylingTimer = window.setTimeout(() => {
-    pendingCustomSubtitleStyling = null;
-    pendingCustomSubtitleStylingTimer = 0;
-    renderSubtitleStylePanel();
-  }, 1500);
-});
 fontSizeMinus.addEventListener("click", event => {
   event.stopPropagation();
   send("subtitleFontSizeDelta", -2);
@@ -3579,6 +3576,13 @@ volumeSlider.addEventListener("input", event => {
 });
 
 let preMuteVolumeLevel = 1.0;
+let subtitlesHidden = false;
+
+function showHiddenSubtitles() {
+  if (!subtitlesHidden) return;
+  subtitlesHidden = false;
+  send("subtitleVisibility", 1);
+}
 
 volumeButton.addEventListener("click", () => {
   noteChromeActivity();
@@ -3617,13 +3621,23 @@ window.playerUpdate = update => {
     window.clearTimeout(pendingPlaybackTimer);
     pendingPlaybackTimer = 0;
   }
+  const nextIsPlaying = pendingIsPlaying === null ? nativeIsPlaying : pendingIsPlaying;
+  const nextIsLoading = Boolean(update.loading || update.isLoading);
+  const unchanged = state.durationMs === durationMs &&
+    Math.floor(state.positionMs / 1000) === Math.floor(positionMs / 1000) &&
+    Math.floor(state.bufferedPositionMs / 1000) === Math.floor(bufferedPositionMs / 1000) &&
+    state.isPlaying === nextIsPlaying &&
+    state.isLoading === nextIsLoading &&
+    state.volumeLevel === volumeLevel &&
+    !audioTracksChanged &&
+    !subtitleTracksChanged;
   state = {
     ...state,
     durationMs,
     positionMs,
     bufferedPositionMs,
-    isPlaying: pendingIsPlaying === null ? nativeIsPlaying : pendingIsPlaying,
-    isLoading: Boolean(update.loading || update.isLoading),
+    isPlaying: nextIsPlaying,
+    isLoading: nextIsLoading,
     volumeLevel,
     audioTracks,
     subtitleTracks,
@@ -3642,9 +3656,11 @@ window.playerUpdate = update => {
       pendingSubtitleOptionId = selected.id;
     }
   }
+  if (unchanged) return;
   renderChrome();
   if ((audioTracksChanged && activeModal === "audio") ||
-      (subtitleTracksChanged && activeModal === "subtitles")) {
+      (subtitleTracksChanged && activeModal === "subtitles") ||
+      (nativeIsPlaying && activeModal === "chapters")) {
     renderActiveModal();
   }
 };
@@ -3736,24 +3752,11 @@ const isControlsSurfaceEvent = event => {
     return true;
   }
 
-  const titleEl = document.getElementById("title");
   const metaRow = document.querySelector(".meta-row");
-  if (titleEl && metaRow) {
-    const titleRect = titleEl.getBoundingClientRect();
-    const metaRect = metaRow.getBoundingClientRect();
-    const textTop = Math.min(titleRect.top, metaRect.top);
-    const textBottom = Math.max(titleRect.bottom, metaRect.bottom);
-    const textRight = titleRect.left + Math.max(titleEl.scrollWidth, metaRow.scrollWidth) + 16;
+  const mediaInfo = [title, episode, metaRow, playerBadges, chapterTitle];
 
-    if (
-        event.clientX >= titleRect.left &&
-        event.clientX <= textRight &&
-        event.clientY >= textTop &&
-        event.clientY <= textBottom
-    ) {
-      return true;
-    }
-  }
+  const infoClick = mediaInfo.some(info => info.checkVisibility() && info.contains(event.target));
+  if (infoClick) return true;
 
   const header = document.querySelector(".header");
   if (header && event.clientY <= header.getBoundingClientRect().bottom + 10) {
@@ -4318,7 +4321,9 @@ document.addEventListener("keydown", event => {
   if (event.code === "KeyV") {
     event.preventDefault();
     const isOff = !normalizeTracks(state.subtitleTracks).some(t => t.selected);
-    if (isOff) {
+    if (subtitlesHidden && !isOff) {
+      showHiddenSubtitles();
+    } else if (isOff) {
       if (window.lastActiveSubtitle) {
         if (window.lastActiveSubtitle.kind === "builtIn") send("selectBuiltInSubtitleTrack", window.lastActiveSubtitle.index);
         else send("selectAddonSubtitle", window.lastActiveSubtitle.index);
@@ -4332,14 +4337,8 @@ document.addEventListener("keydown", event => {
         }
       }
     } else {
-      const activeOption = selectedSubtitleOption(subtitleSelectionOptions());
-      if (activeOption) {
-        window.lastActiveSubtitle = activeOption;
-      } else {
-        const activeTrack = normalizeTracks(state.subtitleTracks).find(t => t.selected);
-        if (activeTrack) window.lastActiveSubtitle = { kind: "builtIn", index: activeTrack.index };
-      }
-      send("selectBuiltInSubtitleTrack", -1);
+      subtitlesHidden = true;
+      send("subtitleVisibility", 0);
     }
     return;
   }
@@ -4488,7 +4487,7 @@ const openSourceTrackModal = modal => {
   qualitySourceScope = "current";
   qualityPromptId = "";
   openPlayerModal(modal);
-  // Loads the episode's sources (reused from the search cache), without the Fontes panel's refresh.
+  // Loads the episode's sources (shared through StreamSearchSessions), without the Fontes panel's refresh.
   sourceTracksSearching = true;
   send("openSourceTracks", 0);
 };
@@ -4646,6 +4645,65 @@ const renderQualityModal = () => {
     });
   }
 };
+
+const overlayDirtyBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.overlayDirty;
+if (overlayDirtyBridge) {
+  let overlayDirtyQueued = false;
+  const markOverlayDirty = () => {
+    if (overlayDirtyQueued) return;
+    overlayDirtyQueued = true;
+    window.setTimeout(() => {
+      overlayDirtyQueued = false;
+      overlayDirtyBridge.postMessage(0);
+    }, 0);
+  };
+  const isOverlayMutationVisible = record => {
+    if (record.type === "attributes" &&
+        record.oldValue === record.target.getAttribute(record.attributeName)) {
+      return false;
+    }
+    if (record.type === "childList" &&
+        record.addedNodes.length === 1 &&
+        record.removedNodes.length === 1 &&
+        record.addedNodes[0].nodeType === Node.TEXT_NODE &&
+        record.removedNodes[0].nodeType === Node.TEXT_NODE &&
+        record.addedNodes[0].data === record.removedNodes[0].data) {
+      return false;
+    }
+    const node = record.type === "childList" ? record.target : record.target.parentElement;
+    if (!node || typeof node.checkVisibility !== "function") return true;
+    return node.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  };
+  new MutationObserver(records => {
+    if (records.some(isOverlayMutationVisible)) markOverlayDirty();
+  }).observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeOldValue: true,
+    characterData: true,
+  });
+  [
+    "transitionrun",
+    "transitionend",
+    "transitioncancel",
+    "animationstart",
+    "animationiteration",
+    "animationend",
+    "animationcancel",
+    "load",
+    "error",
+    "scroll",
+    "input",
+    "focusin",
+    "focusout",
+    "pointerover",
+    "pointerout",
+    "pointerdown",
+    "pointerup",
+  ].forEach(type => document.addEventListener(type, markOverlayDirty, true));
+  if (document.fonts) document.fonts.addEventListener("loadingdone", markOverlayDirty);
+}
 
 setProgress(0, 0, 0);
 focusShortcutRoot();

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +35,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.LocalFold
@@ -63,7 +67,11 @@ import org.jetbrains.compose.resources.stringResource
 private val playerControlsLog = Logger.withTag("PlayerControls")
 
 @Composable
-internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
+internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
+    partyPanelWidth: Dp,
+    partyPanelInset: Dp,
+    dockPartyPanel: Boolean,
+) {
     val runtime = this
     val systemBackRegistration = args.onSystemBackHandlerChanged
     DisposableEffect(runtime, systemBackRegistration) {
@@ -296,6 +304,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     }
     val playerControlsState = PlayerControlsState(
         chapters = controlChapters,
+        chapterTitleEnabled = playerSettingsUiState.chapterTitleEnabled,
         chaptersLabel = stringResource(Res.string.compose_player_chapters),
         chaptersPanelTitle = stringResource(Res.string.compose_player_panel_chapters, chapters.size),
         chapterRemainingTemplate = stringResource(Res.string.compose_player_chapter_remaining, "{time}"),
@@ -374,7 +383,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         subtitleBuiltInTabLabel = stringResource(Res.string.compose_player_built_in),
         subtitleAddonsTabLabel = stringResource(Res.string.addon_title),
         subtitleStyleTabLabel = stringResource(Res.string.compose_player_style),
-        customSubtitleStyleLabel = stringResource(Res.string.compose_player_use_custom_styling),
         forcedLabel = stringResource(Res.string.settings_playback_option_forced),
         noneLabel = stringResource(Res.string.compose_player_none),
         fetchSubtitlesLabel = stringResource(Res.string.compose_player_fetch_subtitles),
@@ -480,7 +488,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         isLoadingAddonSubtitles = isLoadingAddonSubtitles,
         selectedAddonSubtitleId = selectedAddonSubtitleId.orEmpty(),
         useCustomSubtitles = useCustomSubtitles,
-        customSubtitleStylingEnabled = !playerSettingsUiState.useLibass,
         subtitleStyle = subtitleStyle,
         subtitleDelayMs = subtitleDelayMs,
         hasSelectedAddonSubtitle = selectedAddonSubtitle != null,
@@ -502,7 +509,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
                 showStatus = true,
                 controllerReady = playerController != null,
-                buffering = playbackSnapshot.isLoading,
+                snapshot = playbackSnapshot,
             )
         } else null,
         openingProgress = p2pInitialLoadingProgress,
@@ -547,6 +554,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .padding(end = partyPanelInset)
+            .clipToBounds()
             .onSizeChanged { layoutSize = it }
             .then(
                 if (enableSurfaceGestures) {
@@ -566,6 +575,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                             layoutSize = layoutSize,
                             playbackGesturesEnabled = playbackGesturesEnabled,
                             sideGestureSystemEdgeExclusionPx = sideGestureSystemEdgeExclusionPx,
+                            horizontalSeekSystemEdgeExclusionPx = horizontalSeekSystemEdgeExclusionPx,
                             playerControlsLockedState = gestureCallbacks.playerControlsLocked,
                             touchGesturesEnabledState = gestureCallbacks.touchGesturesEnabled,
                             isHoldToSpeedGestureActiveState = gestureCallbacks.isHoldToSpeedGestureActive,
@@ -586,12 +596,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     ) {
         val playbackKey = activePlaybackKey
         val sourcePlaybackKey = playbackKey.copy(playbackEngine = null)
-
-        LaunchedEffect(sourcePlaybackKey) {
-            engineFailoverTriggered = false
-            engineFailoverDisarmed = false
-            playbackEngineOverride = null
-        }
+        val initialPositionRequestKey = currentInitialPositionRequestKey()
 
         val resolvedAutoEngineState = remember(sourcePlaybackKey) {
             mutableStateOf<AndroidPlaybackEngine?>(null)
@@ -625,7 +630,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 playWhenReady = shouldPlay && sourceAvailable,
                 initialPositionMs = surfaceSource?.initialPositionMs,
                 initialPositionRequestKey = surfaceSource?.initialPositionRequestKey,
-                resizeMode = resizeMode,
+                resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
                 playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
                 playerControlsState = playerControlsState,
                 onPlayerControlsAction = { action -> handlePlayerControlsAction(action) },
@@ -659,7 +664,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     }
                 },
                 onError = { message ->
-                    if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
+                    if (message != null && tryRefreshExpiredLinkAfterError(message)) {
+                        return@PlatformPlayerSurface
+                    }
+                    if (message != null && tryFallbackToNextSourceAfterError(message)) {
                         return@PlatformPlayerSurface
                     }
                     if (message != null && !isDesktop && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
@@ -720,12 +728,17 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 folded = fold != null,
             )
         }
-        Box(modifier = panelModifier) {
-            RenderPlayerModals(displayedPositionMs = displayedPositionMs)
-        }
+    }
+    Box(modifier = panelModifier) {
         if (!isDesktop) {
-            RenderParty(runtime = runtime)
+            RenderParty(
+                runtime = runtime,
+                panelWidth = partyPanelWidth,
+                modal = !dockPartyPanel,
+                panelVisible = showPartyPanel && !isInPip,
+            )
         }
+        RenderPlayerModals(displayedPositionMs = displayedPositionMs)
     }
 }
 
@@ -1196,6 +1209,7 @@ internal fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: 
             persistAddonSubtitlePreference(addon)
             attachSelectedAddonSubtitleWithAutoSync(addon.url)
         }
+        "subtitleVisibility" -> playerController?.setSubtitleVisible(value != 0.0)
         "subtitleDelayDelta" -> setSubtitleDelay((subtitleDelayMs + value.toInt()).coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
         "subtitleDelayReset" -> setSubtitleDelay(0)
         "subtitleAutoSyncCapture" -> captureSubtitleAutoSyncTime()
@@ -1203,9 +1217,6 @@ internal fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: 
         "subtitleAutoSyncCue" -> {
             val cue = playerControlsNearestSubtitleCues().getOrNull(value.toInt()) ?: return true
             applySubtitleAutoSyncCue(cue)
-        }
-        "subtitleCustomStyleToggle" -> {
-            PlayerSettingsRepository.setUseLibass(!playerSettingsUiState.useLibass)
         }
         "subtitleFontSizeDelta" -> {
             PlayerSettingsRepository.setSubtitleStyle(
@@ -1885,7 +1896,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
                     showStatus = true,
                     controllerReady = playerController != null,
-                    buffering = playbackSnapshot.isLoading,
+                    snapshot = playbackSnapshot,
                 )
             } else null,
             p2pInitialLoadingProgress = p2pInitialLoadingProgress,
@@ -1965,6 +1976,17 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             }
         },
         onAudioModalDismissed = { showAudioModal = false },
+        showAudioDelay = playerController?.supportsAudioDelay == true,
+        audioDelayMs = audioDelayMs,
+        onAudioDelayChanged = { delayMs -> setAudioDelay(delayMs) },
+        showAudioAmplification = playerController?.supportsAudioAmplification == true,
+        audioAmplificationDb = audioAmplificationDb,
+        keepAudioAmplification = playerSettingsUiState.persistAudioAmplification,
+        onAudioAmplificationChanged = { db -> setAudioAmplification(db) },
+        onKeepAudioAmplificationChanged = { keep -> setKeepAudioAmplification(keep) },
+        showCenterMix = centerMixAvailable,
+        centerMixLevelDb = centerMixLevelDb,
+        onCenterMixLevelChanged = { db -> setCenterMixLevel(db) },
         showSubtitleModal = showSubtitleModal,
         subtitleTracks = serverSubtitleTracks.ifEmpty { subtitleTracks },
         selectedSubtitleIndex = if (serverSubtitleTracks.isEmpty()) {
@@ -2026,8 +2048,15 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         sourceStreamsState = sourceStreamsState,
         contentTitle = title,
         activeEpisodeTitle = activeEpisodeTitle,
-        activeSourceUrl = activeSourceUrl,
-        activeStreamTitle = activeStreamTitle,
+        currentStream = PlayerCurrentStream(
+            url = activeSourceUrl,
+            name = activeStreamTitle,
+            description = activeStreamSubtitle,
+            addonId = activeProviderAddonId,
+            infoHash = activeStream?.p2pInfoHash ?: activeTorrentInfoHash,
+            fileIdx = activeStream?.p2pFileIdx ?: activeTorrentFileIdx,
+            filename = activeSourceFilename,
+        ),
         onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
         onSourceStreamSelected = { stream -> markManualSourcePick(stream); switchToSource(stream) },
         onReloadSources = {
